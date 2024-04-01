@@ -3,13 +3,16 @@ const { tokenGenerator, voiceResponse } = require("./handler");
 
 const router = new Router();
 
-router.get("/token", (req, res) => {
-  res.send(tokenGenerator());
-});
+router.post("/token", tokenGenerator);
 
-router.post("/voice", (req, res) => {
-  res.set("Content-Type", "text/xml");
-  res.send(voiceResponse(req.body));
+router.post("/voice", async (req, res) => {
+  try {
+    const response = await voiceResponse(req);
+    res.set("Content-Type", "text/xml");
+    res.send(response);
+  } catch (error) {
+    console.error("Error:", error);
+    res.status(500).send("Internal Server Error");
+  }
 });
-
 module.exports = router;
