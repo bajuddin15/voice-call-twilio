@@ -1,5 +1,12 @@
 const Router = require("express").Router;
-const { tokenGenerator, voiceResponse } = require("./handler");
+const {
+  tokenGenerator,
+  voiceResponse,
+  makeOutgoingTextToSpeechCall,
+  recordingCall,
+  callStatusTextToSpeech,
+  callStatusWebhook,
+} = require("./handler");
 
 const router = new Router();
 
@@ -15,4 +22,12 @@ router.post("/voice", async (req, res) => {
     res.status(500).send("Internal Server Error");
   }
 });
+
+// Text to Speech Outgoing Call
+router.post("/makeTextToSpeechCall", makeOutgoingTextToSpeechCall);
+
+// recording callback route
+router.post("/recordingCallback", recordingCall);
+router.post("/callStatusTextToSpeech", callStatusTextToSpeech); // for check textToSpeech call status after call end
+router.post("/webhook", callStatusWebhook); // for check call status after call end
 module.exports = router;

@@ -1,6 +1,6 @@
 const http = require("http");
 const dotenv = require("dotenv");
-const path = require("path");
+// const path = require("path");
 const express = require("express");
 const bodyParser = require("body-parser");
 const cors = require("cors");
@@ -11,10 +11,15 @@ const router = require("./src/router");
 // Create Express webapp
 dotenv.config();
 const app = express();
-app.use(express.static(path.join(__dirname, "public")));
+// app.use(express.static(path.join(__dirname, "public")));
 app.use(bodyParser.urlencoded({ extended: false }));
 app.use(bodyParser.json());
 app.use(cors());
+
+// Api root route
+app.get("/", (req, res) => {
+  res.send("Api is running..");
+});
 
 app.use("/api", router);
 
