@@ -262,6 +262,10 @@ const callStatusTextToSpeech = async (req, res) => {
         };
 
         const resp = await addCallRecord(devToken, callDetails);
+        console.log({
+          callDetails,
+          resp,
+        });
       })
       .catch((error) => console.error(error));
   }
@@ -325,6 +329,11 @@ const callStatusWebhook = async (req, res) => {
         };
 
         const resp = await addCallRecord(devToken, callDetails);
+
+        console.log({
+          callDetails,
+          resp,
+        });
       })
       .catch((error) => console.error(error));
   }
