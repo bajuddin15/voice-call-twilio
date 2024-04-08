@@ -233,42 +233,37 @@ const callStatusTextToSpeech = async (req, res) => {
   }
 
   const resData = await getProviderDetails(devToken, providerNumber);
-  if (resData && resData?.provider_number) {
-    // Retrieve call details using CallSid
+  if (resData && resData.provider_number) {
+    setTimeout(async () => {
+      const TWILIO_ACCOUNT_DETAIL = {
+        accountSid: AccountSid,
+        authToken: resData.account_token,
+      };
+      const client = require("twilio")(
+        TWILIO_ACCOUNT_DETAIL.accountSid,
+        TWILIO_ACCOUNT_DETAIL.authToken
+      );
 
-    const TWILIO_ACCOUNT_DETAIL = {
-      accountSid: AccountSid,
-      authToken: resData?.account_token,
-    };
-    const client = require("twilio")(
-      TWILIO_ACCOUNT_DETAIL.accountSid,
-      TWILIO_ACCOUNT_DETAIL.authToken
-    );
-    client
-      .calls(CallSid)
-      .fetch()
-      .then(async (call) => {
-        // Extract pricing information from the call details
+      try {
+        const call = await client.calls(CallSid).fetch();
 
         const callDetails = {
-          to: To,
-          from: From,
+          to: toNumber,
+          from: fromNumber,
           recordingUrl: RecordingUrl,
           callDuration: CallDuration,
-          callDirection: "outgoing",
-          price: call?.price ? call?.price : "0",
+          callDirection: callDirection,
+          price: call?.price ? call.price : "-0.1",
           currency: call?.priceUnit,
           callSid: CallSid,
         };
 
         const resp = await addCallRecord(devToken, callDetails);
-        console.log({
-          callDetails,
-          call,
-          resp,
-        });
-      })
-      .catch((error) => console.error(error));
+        console.log({ callDetails, call, resp });
+      } catch (error) {
+        console.error(error);
+      }
+    }, 3000);
   }
 
   res.status(200).end();
@@ -280,43 +275,37 @@ const callStatusWebhook = async (req, res) => {
 
   let toNumber, fromNumber, callDirection;
   if (To.startsWith("client:")) {
-    // It means it is incoming call
     toNumber = extractNumberFromClient(To);
     fromNumber = From;
     callDirection = "incoming";
   } else {
-    // It means it is outgoing call
     toNumber = To;
     fromNumber = From;
     callDirection = "outgoing";
   }
   const providerNumber = sanitizePhoneNumber(
     callDirection === "outgoing" ? fromNumber : toNumber
-  ); // it has without '+' start
-  // From - it has + in start
+  );
 
   const devToken = await getTokenFromNumber(providerNumber);
   if (!devToken) {
-    return res.status(404);
+    return res.status(404).end();
   }
 
   const resData = await getProviderDetails(devToken, providerNumber);
-  if (resData && resData?.provider_number) {
-    // Retrieve call details using CallSid
+  if (resData && resData.provider_number) {
+    setTimeout(async () => {
+      const TWILIO_ACCOUNT_DETAIL = {
+        accountSid: AccountSid,
+        authToken: resData.account_token,
+      };
+      const client = require("twilio")(
+        TWILIO_ACCOUNT_DETAIL.accountSid,
+        TWILIO_ACCOUNT_DETAIL.authToken
+      );
 
-    const TWILIO_ACCOUNT_DETAIL = {
-      accountSid: AccountSid,
-      authToken: resData?.account_token,
-    };
-    const client = require("twilio")(
-      TWILIO_ACCOUNT_DETAIL.accountSid,
-      TWILIO_ACCOUNT_DETAIL.authToken
-    );
-    client
-      .calls(CallSid)
-      .fetch()
-      .then(async (call) => {
-        // Extract pricing information from the call details
+      try {
+        const call = await client.calls(CallSid).fetch();
 
         const callDetails = {
           to: toNumber,
@@ -324,20 +313,17 @@ const callStatusWebhook = async (req, res) => {
           recordingUrl: RecordingUrl,
           callDuration: CallDuration,
           callDirection: callDirection,
-          price: call?.price ? call?.price : "0",
+          price: call?.price ? call.price : "-0.1",
           currency: call?.priceUnit,
           callSid: CallSid,
         };
 
         const resp = await addCallRecord(devToken, callDetails);
-
-        console.log({
-          callDetails,
-          call,
-          resp,
-        });
-      })
-      .catch((error) => console.error(error));
+        console.log({ callDetails, call, resp });
+      } catch (error) {
+        console.error(error);
+      }
+    }, 3000);
   }
 
   res.status(200).end();
