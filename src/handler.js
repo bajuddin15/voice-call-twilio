@@ -256,14 +256,15 @@ const callStatusTextToSpeech = async (req, res) => {
           recordingUrl: RecordingUrl,
           callDuration: CallDuration,
           callDirection: "outgoing",
-          price: call?.price ? call?.price : 0,
-          currency: call?.priceUnit,
+          price: call.price,
+          currency: call.priceUnit,
           callSid: CallSid,
         };
 
         const resp = await addCallRecord(devToken, callDetails);
         console.log({
           callDetails,
+          call,
           resp,
         });
       })
@@ -323,8 +324,8 @@ const callStatusWebhook = async (req, res) => {
           recordingUrl: RecordingUrl,
           callDuration: CallDuration,
           callDirection: callDirection,
-          price: call?.price ? call?.price : 0,
-          currency: call?.priceUnit,
+          price: call.price,
+          currency: call.priceUnit,
           callSid: CallSid,
         };
 
@@ -332,6 +333,7 @@ const callStatusWebhook = async (req, res) => {
 
         console.log({
           callDetails,
+          call,
           resp,
         });
       })
