@@ -256,8 +256,8 @@ const callStatusTextToSpeech = async (req, res) => {
           recordingUrl: RecordingUrl,
           callDuration: CallDuration,
           callDirection: "outgoing",
-          price: call.price,
-          currency: call.priceUnit,
+          price: call?.price ? call?.price : "0",
+          currency: call?.priceUnit,
           callSid: CallSid,
         };
 
@@ -324,8 +324,8 @@ const callStatusWebhook = async (req, res) => {
           recordingUrl: RecordingUrl,
           callDuration: CallDuration,
           callDirection: callDirection,
-          price: call.price,
-          currency: call.priceUnit,
+          price: call?.price ? call?.price : "0",
+          currency: call?.priceUnit,
           callSid: CallSid,
         };
 
