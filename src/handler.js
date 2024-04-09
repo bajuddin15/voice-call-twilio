@@ -263,7 +263,7 @@ const callStatusTextToSpeech = async (req, res) => {
       } catch (error) {
         console.error(error);
       }
-    }, 3000);
+    }, 10000);
   }
 
   res.status(200).end();
@@ -323,7 +323,7 @@ const callStatusWebhook = async (req, res) => {
       } catch (error) {
         console.error(error);
       }
-    }, 3000);
+    }, 10000);
   }
 
   res.status(200).end();
