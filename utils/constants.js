@@ -1,3 +1,8 @@
 const BASE_URL = "https://voice.crm-messaging.cloud";
 
-module.exports = { BASE_URL };
+const DEVICE_STATUS = {
+  ACTIVE: "ACTIVE",
+  INACTIVE: "INACTIVE",
+};
+
+module.exports = { BASE_URL, DEVICE_STATUS };

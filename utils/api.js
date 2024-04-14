@@ -79,4 +79,27 @@ const addCallRecord = async (token, callDetails) => {
   return resData;
 };
 
-module.exports = { getProviderDetails, getTokenFromNumber, addCallRecord };
+const getVoiceCallMsg = async (token) => {
+  const url = "https://app.crm-messaging.cloud/index.php/Api/getVoiceMessage";
+  const headers = {
+    Authorization: `Bearer ${token}`,
+  };
+  let resData;
+  try {
+    const { data } = await axios.get(url, {
+      headers,
+    });
+    resData = data;
+  } catch (error) {
+    console.log("Get voice msg error : ", error);
+    resData = null;
+  }
+  return resData;
+};
+
+module.exports = {
+  getProviderDetails,
+  getTokenFromNumber,
+  addCallRecord,
+  getVoiceCallMsg,
+};

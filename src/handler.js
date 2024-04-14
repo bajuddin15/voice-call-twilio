@@ -6,15 +6,17 @@ const {
   getProviderDetails,
   getTokenFromNumber,
   addCallRecord,
+  getVoiceCallMsg,
 } = require("../utils/api");
 const {
   sanitizePhoneNumber,
   extractNumberFromClient,
 } = require("../utils/common");
-const { BASE_URL } = require("../utils/constants");
+const { BASE_URL, DEVICE_STATUS } = require("../utils/constants");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
 
 const tokenGenerator = async (req, res) => {
+  console.log({ token: "generated" });
   const { devToken, providerNumber } = req.body;
 
   try {
@@ -47,7 +49,7 @@ const tokenGenerator = async (req, res) => {
       accessToken.addGrant(grant);
 
       const twilioDetails = await TwilioAccountDetails.findOne({
-        callerId: twilioAccountDetails.provider_number,
+        identity: twilioAccountDetails.provider_number,
       });
 
       if (!twilioDetails) {
@@ -57,6 +59,7 @@ const tokenGenerator = async (req, res) => {
         });
 
         await newDetail.save();
+        console.log({ createdIdentity: "identity created." });
 
         return res.status(200).json({
           success: true,
@@ -101,28 +104,47 @@ const voiceResponse = async (req) => {
   const toNumberOrClientName = To;
   const providerNumber = Provider_Number;
   const twilioAccountDetailTo = await TwilioAccountDetails.findOne({
-    callerId: To,
+    identity: To,
   });
 
   const callerId = providerNumber;
   let twiml = new VoiceResponse();
 
   if (!providerNumber) {
-    // This is an incoming call
-    let dial = twiml.dial({
-      record: true,
-      recordingStatusCallback: `${BASE_URL}/api/recordingCallback`,
-    });
-
     // This will connect the caller with your Twilio.Device/client
     const identity = twilioAccountDetailTo?.identity;
-    dial.client(
-      {
-        statusCallback: `${BASE_URL}/api/webhook`,
-        statusCallbackEvent: "completed",
-      },
-      identity
-    );
+    const deviceStatus = twilioAccountDetailTo.deviceStatus;
+    console.log({
+      deviceStatus,
+      DEVICE_STATUS: DEVICE_STATUS.INACTIVE,
+    });
+
+    if (deviceStatus === DEVICE_STATUS.INACTIVE) {
+      const provider_number = sanitizePhoneNumber(identity);
+      const devToken = await getTokenFromNumber(provider_number);
+      const resData = await getVoiceCallMsg(devToken);
+      let msg =
+        resData?.voiceMessage ||
+        "We're sorry, but the person you are trying to reach is currently unavailable to take your call.";
+      // device INACTIVE
+      console.log("inactive device status");
+      twiml.say(msg);
+    } else {
+      // it means device status active
+      // This is an incoming call
+      console.log("active device status");
+      let dial = twiml.dial({
+        record: true,
+        recordingStatusCallback: `${BASE_URL}/api/recordingCallback`,
+      });
+      dial.client(
+        {
+          statusCallback: `${BASE_URL}/api/webhook`,
+          statusCallbackEvent: "completed",
+        },
+        identity
+      );
+    }
   } else if (To && Provider_Number) {
     // This is an outgoing call
 
