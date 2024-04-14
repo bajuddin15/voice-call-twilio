@@ -116,7 +116,8 @@ const voiceResponse = async (req) => {
     const deviceStatus = twilioAccountDetailTo.deviceStatus;
     console.log({
       deviceStatus,
-      DEVICE_STATUS: DEVICE_STATUS.INACTIVE,
+      identity,
+      twilioAccountDetailTo,
     });
 
     if (deviceStatus === DEVICE_STATUS.INACTIVE) {
