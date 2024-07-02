@@ -13,10 +13,10 @@ const {
   extractNumberFromClient,
 } = require("../utils/common");
 const { BASE_URL, DEVICE_STATUS } = require("../utils/constants");
+const Call = require("./models/call.models");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
 
 const tokenGenerator = async (req, res) => {
-  console.log({ token: "generated" });
   const { devToken, providerNumber } = req.body;
 
   try {
@@ -101,6 +101,7 @@ const tokenGenerator = async (req, res) => {
 
 const voiceResponse = async (req) => {
   const { To, Provider_Number } = req.body;
+  console.log({ To, Provider_Number });
   const toNumberOrClientName = To;
   const providerNumber = Provider_Number;
   const twilioAccountDetailTo = await TwilioAccountDetails.findOne({
@@ -245,56 +246,126 @@ const recordingCall = async (req, res) => {
 };
 
 const callStatusTextToSpeech = async (req, res) => {
-  const { RecordingUrl, To, From, CallDuration, CallSid, AccountSid } =
-    req.body;
-  const providerNumber = sanitizePhoneNumber(From); // it has without '+' start
-  // From - it has + in start
+  const {
+    RecordingUrl,
+    To,
+    From,
+    CallDuration,
+    CallSid,
+    ParentCallSid,
+    AccountSid,
+  } = req.body;
+
+  let toNumber, fromNumber, callDirection;
+  if (To.startsWith("client:")) {
+    toNumber = extractNumberFromClient(To);
+    fromNumber = From;
+    callDirection = "incoming";
+  } else {
+    toNumber = To;
+    fromNumber = From;
+    callDirection = "outgoing";
+  }
+
+  const providerNumber = sanitizePhoneNumber(
+    callDirection === "outgoing" ? fromNumber : toNumber
+  );
 
   const devToken = await getTokenFromNumber(providerNumber);
   if (!devToken) {
-    return res.status(404);
+    return res.status(404).end();
   }
 
   const resData = await getProviderDetails(devToken, providerNumber);
   if (resData && resData.provider_number) {
-    setTimeout(async () => {
-      const TWILIO_ACCOUNT_DETAIL = {
-        accountSid: AccountSid,
-        authToken: resData.account_token,
-      };
-      const client = require("twilio")(
-        TWILIO_ACCOUNT_DETAIL.accountSid,
-        TWILIO_ACCOUNT_DETAIL.authToken
-      );
+    const TWILIO_ACCOUNT_DETAIL = {
+      accountSid: AccountSid,
+      authToken: resData.account_token,
+    };
+    const client = require("twilio")(
+      TWILIO_ACCOUNT_DETAIL.accountSid,
+      TWILIO_ACCOUNT_DETAIL.authToken
+    );
 
+    const fetchCallDetails = async (retryCount = 0) => {
+      if (retryCount >= 5) {
+        // Maximum retries
+        console.error("Failed to fetch call price after multiple attempts");
+        return;
+      }
       try {
         const call = await client.calls(CallSid).fetch();
+        const parentCall = await client.calls(ParentCallSid).fetch();
 
-        const callDetails = {
-          to: toNumber,
-          from: fromNumber,
-          recordingUrl: RecordingUrl,
-          callDuration: CallDuration,
-          callDirection: callDirection,
-          price: call?.price ? call.price : "-0.1",
-          currency: call?.priceUnit,
-          callSid: CallSid,
-        };
+        if (call.price) {
+          const callPrice = call.price;
+          const parentCallPrice = parentCall.price ? parentCall.price : "-0.0";
 
-        const resp = await addCallRecord(devToken, callDetails);
-        console.log({ callDetails, call, resp });
+          // Convert the string prices to numbers
+          const callPriceNumber = parseFloat(callPrice);
+          const parentCallPriceNumber = parseFloat(parentCallPrice);
+
+          // Sum the prices
+          const totalPrice = callPriceNumber + parentCallPriceNumber;
+
+          const callDetails = {
+            to: toNumber,
+            from: fromNumber,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection: callDirection,
+            price: totalPrice.toString(),
+            currency: call.priceUnit,
+            callSid: CallSid,
+            parentCallSid: ParentCallSid,
+            parentCallPrice: parentCall.price,
+          };
+
+          const newCall = new Call({
+            callSid: CallSid,
+            parentCallSid: ParentCallSid,
+            accountSid: AccountSid,
+            to: toNumber,
+            from: fromNumber,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection: callDirection,
+            callPrice: call.price,
+            parentCallPrice: parentCall.price,
+            currency: call.priceUnit,
+            totalPrice: totalPrice.toString(),
+          });
+          await newCall.save();
+
+          const resp = await addCallRecord(devToken, callDetails);
+          console.log({ callDetails, call, parentCall, resp });
+        } else {
+          console.log(
+            `Price not available yet. Retrying... (${retryCount + 1})`
+          );
+          setTimeout(() => fetchCallDetails(retryCount + 1), 5000); // Retry after 5 seconds
+        }
       } catch (error) {
         console.error(error);
       }
-    }, 10000);
+    };
+
+    setTimeout(() => fetchCallDetails(), 10000); // Initial delay before first fetch
   }
 
   res.status(200).end();
 };
 
 const callStatusWebhook = async (req, res) => {
-  const { RecordingUrl, To, From, CallDuration, CallSid, AccountSid } =
-    req.body;
+  const {
+    RecordingUrl,
+    To,
+    From,
+    CallDuration,
+    CallSid,
+    ParentCallSid,
+    AccountSid,
+  } = req.body;
 
   let toNumber, fromNumber, callDirection;
   if (To.startsWith("client:")) {
@@ -317,36 +388,78 @@ const callStatusWebhook = async (req, res) => {
 
   const resData = await getProviderDetails(devToken, providerNumber);
   if (resData && resData.provider_number) {
-    setTimeout(async () => {
-      const TWILIO_ACCOUNT_DETAIL = {
-        accountSid: AccountSid,
-        authToken: resData.account_token,
-      };
-      const client = require("twilio")(
-        TWILIO_ACCOUNT_DETAIL.accountSid,
-        TWILIO_ACCOUNT_DETAIL.authToken
-      );
+    const TWILIO_ACCOUNT_DETAIL = {
+      accountSid: AccountSid,
+      authToken: resData.account_token,
+    };
+    const client = require("twilio")(
+      TWILIO_ACCOUNT_DETAIL.accountSid,
+      TWILIO_ACCOUNT_DETAIL.authToken
+    );
 
+    const fetchCallDetails = async (retryCount = 0) => {
+      if (retryCount >= 5) {
+        // Maximum retries
+        console.error("Failed to fetch call price after multiple attempts");
+        return;
+      }
       try {
         const call = await client.calls(CallSid).fetch();
+        const parentCall = await client.calls(ParentCallSid).fetch();
 
-        const callDetails = {
-          to: toNumber,
-          from: fromNumber,
-          recordingUrl: RecordingUrl,
-          callDuration: CallDuration,
-          callDirection: callDirection,
-          price: call?.price ? call.price : "-0.1",
-          currency: call?.priceUnit,
-          callSid: CallSid,
-        };
+        if (call.price) {
+          const callPrice = call.price;
+          const parentCallPrice = parentCall.price ? parentCall.price : "-0.0";
 
-        const resp = await addCallRecord(devToken, callDetails);
-        console.log({ callDetails, call, resp });
+          // Convert the string prices to numbers
+          const callPriceNumber = parseFloat(callPrice);
+          const parentCallPriceNumber = parseFloat(parentCallPrice);
+
+          // Sum the prices
+          const totalPrice = callPriceNumber + parentCallPriceNumber;
+
+          const callDetails = {
+            to: call.to,
+            from: call.from,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection:
+              call.direction === "outbound-dial" ? "outgoing" : "incoming",
+            price: totalPrice.toString(),
+            currency: call.priceUnit,
+            callSid: CallSid,
+          };
+          const newCall = new Call({
+            callSid: CallSid,
+            parentCallSid: ParentCallSid,
+            accountSid: AccountSid,
+            to: call.to,
+            from: call.from,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection:
+              call.direction === "outbound-dial" ? "outgoing" : "incoming",
+            callPrice: call.price,
+            parentCallPrice: parentCall.price,
+            currency: call.priceUnit,
+            totalPrice: totalPrice.toString(),
+          });
+          await newCall.save();
+
+          const resp = await addCallRecord(devToken, callDetails);
+          console.log({ callDetails, call, parentCall, resp });
+        } else {
+          console.log(
+            `Price not available yet. Retrying... (${retryCount + 1})`
+          );
+          setTimeout(() => fetchCallDetails(retryCount + 1), 5000); // Retry after 5 seconds
+        }
       } catch (error) {
         console.error(error);
       }
-    }, 10000);
+    };
+
+    setTimeout(() => fetchCallDetails(), 10000); // Initial delay before first fetch
   }
 
   res.status(200).end();

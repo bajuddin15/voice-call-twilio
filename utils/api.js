@@ -97,9 +97,89 @@ const getVoiceCallMsg = async (token) => {
   return resData;
 };
 
+// add sms provider
+const addTwilioSmsProvider = async (
+  token,
+  phoneNumber,
+  country,
+  msgServiceId,
+  accountSid,
+  accountToken
+) => {
+  const url =
+    "https://app.crm-messaging.cloud/index.php/Api/addTwilioSmsProvider";
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  const formData = new FormData();
+  formData.append("token", token);
+  formData.append("phoneNumber", phoneNumber);
+  formData.append("country", country);
+  formData.append("msgServiceId", msgServiceId);
+  formData.append("account_sid", accountSid);
+  formData.append("account_token", accountToken);
+
+  let resData;
+  try {
+    const { data } = await axios.post(url, formData, {
+      headers,
+    });
+    resData = data;
+  } catch (error) {
+    console.log("Add Twilio SMS provider error:", error);
+    resData = null;
+  }
+
+  return resData;
+};
+const addTwilioVoiceProvider = async (
+  token,
+  phoneNumber,
+  country,
+  twimlAppSid,
+  accountSid,
+  accountToken,
+  apiKey,
+  apiSecret
+) => {
+  const url =
+    "https://app.crm-messaging.cloud/index.php/Api/addTwilioVoiceProvider";
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  const formData = new FormData();
+  formData.append("token", token);
+  formData.append("phoneNumber", phoneNumber);
+  formData.append("country", country);
+  formData.append("twiml_app_sid", twimlAppSid);
+  formData.append("account_sid", accountSid);
+  formData.append("account_token", accountToken);
+  formData.append("twilio_api_key", apiKey);
+  formData.append("twilio_api_secret", apiSecret);
+
+  let resData;
+  try {
+    const { data } = await axios.post(url, formData, {
+      headers,
+    });
+    resData = data;
+  } catch (error) {
+    console.log("Add Twilio voice provider error:", error);
+    resData = null;
+  }
+
+  return resData;
+};
+
 module.exports = {
   getProviderDetails,
   getTokenFromNumber,
   addCallRecord,
   getVoiceCallMsg,
+  addTwilioSmsProvider,
+  addTwilioVoiceProvider,
 };

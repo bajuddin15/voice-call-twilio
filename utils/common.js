@@ -1,3 +1,5 @@
+const moment = require("moment");
+
 const sanitizePhoneNumber = (phoneNumber) => {
   if (phoneNumber.startsWith("+")) {
     return phoneNumber.substring(1); // Remove the '+' character
@@ -12,4 +14,20 @@ const extractNumberFromClient = (clientNumber) => {
   return clientNumber;
 };
 
-module.exports = { sanitizePhoneNumber, extractNumberFromClient };
+const formatAverageCallsDuration = (seconds) => {
+  const duration = moment.duration(seconds, "seconds");
+  const hours = duration.hours();
+  const minutes = duration.minutes();
+  const secs = duration.seconds();
+  let formattedDuration = "";
+  if (hours > 0) formattedDuration += `${hours}h `;
+  if (minutes > 0) formattedDuration += `${minutes}m `;
+  if (secs > 0) formattedDuration += `${secs}s`;
+  return formattedDuration.trim() || "0s";
+};
+
+module.exports = {
+  sanitizePhoneNumber,
+  extractNumberFromClient,
+  formatAverageCallsDuration,
+};

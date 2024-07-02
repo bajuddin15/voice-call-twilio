@@ -9,6 +9,16 @@ const {
   callStatusWebhook,
 } = require("./handler");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
+const { protectRoute } = require("./middlewares/auth.middlewares");
+const {
+  getCallLogs,
+  searchAvailableNumbers,
+  createSubaccountAndPurchaseNumber,
+  getAllPurchasedNumbers,
+  deleteSubaccount,
+  getCallStatistics,
+  assignPhoneNumberToTeam,
+} = require("./controllers/dialer.controllers");
 
 const router = new Router();
 
@@ -61,4 +71,20 @@ router.put("/updateDeviceStatus", async (req, res) => {
     console.log("Update status error : ", error?.message);
   }
 });
+
+// api for retrive call logs
+router.get("/callLogs", protectRoute, getCallLogs);
+router.post("/searchNumbers", searchAvailableNumbers);
+router.post("/purchaseNumber", protectRoute, createSubaccountAndPurchaseNumber);
+router.get("/purchasedNumbers", protectRoute, getAllPurchasedNumbers);
+router.get("/calls/states", protectRoute, getCallStatistics);
+router.delete("/delete-subaccount", deleteSubaccount);
+
+//
+router.put(
+  "/assignPhoneNumber/:phoneSid",
+  protectRoute,
+  assignPhoneNumberToTeam
+);
+
 module.exports = router;
