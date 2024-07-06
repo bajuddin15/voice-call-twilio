@@ -175,6 +175,35 @@ const addTwilioVoiceProvider = async (
   return resData;
 };
 
+const sendMessage = async (token, msgData) => {
+  const { toNumber, fromNumber, message, templateName } = msgData;
+  let resData;
+  try {
+    let channel = msgData?.actionType === "whatsapp" ? "whatsapp" : "sms";
+    const formData = new FormData();
+    formData.append("to", toNumber);
+    formData.append("fromnum", fromNumber);
+    formData.append("msg", message);
+    formData.append("channel", channel);
+
+    if (channel === "whatsapp") {
+      formData.append("tempName", templateName);
+    }
+    const url = "https://app.crm-messaging.cloud/index.php/Api/sendMsg";
+    const headers = {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/x-www-form-urlencoded",
+    };
+
+    const { data } = await axios.post(url, formData, { headers });
+    resData = data;
+  } catch (error) {
+    console.log("Send Message Error: ", error?.message);
+    resData = null;
+  }
+  return resData;
+};
+
 module.exports = {
   getProviderDetails,
   getTokenFromNumber,
@@ -182,4 +211,5 @@ module.exports = {
   getVoiceCallMsg,
   addTwilioSmsProvider,
   addTwilioVoiceProvider,
+  sendMessage,
 };

@@ -8,6 +8,7 @@ const connectDB = require("./utils/db");
 
 const router = require("./src/router");
 const stripeRoutes = require("./src/routes/stripe.routes");
+const twilioConfigRoutes = require("./src/routes/twilioConfig.routes");
 
 // Create Express webapp
 dotenv.config();
@@ -24,6 +25,7 @@ app.get("/", (req, res) => {
 
 app.use("/api", router);
 app.use("/api", stripeRoutes);
+app.use("/api/config", twilioConfigRoutes);
 
 // Create http server and run it
 const server = http.createServer(app);

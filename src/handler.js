@@ -2,11 +2,13 @@ const VoiceResponse = require("twilio").twiml.VoiceResponse;
 const AccessToken = require("twilio").jwt.AccessToken;
 const VoiceGrant = AccessToken.VoiceGrant;
 
+const twilio = require("twilio");
 const {
   getProviderDetails,
   getTokenFromNumber,
   addCallRecord,
   getVoiceCallMsg,
+  sendMessage,
 } = require("../utils/api");
 const {
   sanitizePhoneNumber,
@@ -15,6 +17,8 @@ const {
 const { BASE_URL, DEVICE_STATUS } = require("../utils/constants");
 const Call = require("./models/call.models");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
+const CallForwarding = require("./models/callForwarding.models");
+const MissedCallAction = require("./models/missedCallAction.models");
 
 const tokenGenerator = async (req, res) => {
   const { devToken, providerNumber } = req.body;
@@ -59,7 +63,6 @@ const tokenGenerator = async (req, res) => {
         });
 
         await newDetail.save();
-        console.log({ createdIdentity: "identity created." });
 
         return res.status(200).json({
           success: true,
@@ -88,7 +91,7 @@ const tokenGenerator = async (req, res) => {
     } else {
       res.status(400).json({
         success: false,
-        message: "Details not found",
+        message: "Provider details not found",
       });
     }
   } catch (error) {
@@ -101,7 +104,6 @@ const tokenGenerator = async (req, res) => {
 
 const voiceResponse = async (req) => {
   const { To, Provider_Number } = req.body;
-  console.log({ To, Provider_Number });
   const toNumberOrClientName = To;
   const providerNumber = Provider_Number;
   const twilioAccountDetailTo = await TwilioAccountDetails.findOne({
@@ -112,40 +114,61 @@ const voiceResponse = async (req) => {
   let twiml = new VoiceResponse();
 
   if (!providerNumber) {
+    // Incoming Call
     // This will connect the caller with your Twilio.Device/client
     const identity = twilioAccountDetailTo?.identity;
     const deviceStatus = twilioAccountDetailTo.deviceStatus;
-    console.log({
-      deviceStatus,
-      identity,
-      twilioAccountDetailTo,
+
+    // check call Forwarding is on or not
+    const callForwarding = await CallForwarding.findOne({
+      forwardedNumber: identity,
     });
 
-    if (deviceStatus === DEVICE_STATUS.INACTIVE) {
-      const provider_number = sanitizePhoneNumber(identity);
-      const devToken = await getTokenFromNumber(provider_number);
-      const resData = await getVoiceCallMsg(devToken);
-      let msg =
-        resData?.voiceMessage ||
-        "We're sorry, but the person you are trying to reach is currently unavailable to take your call.";
-      // device INACTIVE
-      console.log("inactive device status");
-      twiml.say(msg);
-    } else {
-      // it means device status active
-      // This is an incoming call
-      console.log("active device status");
+    if (callForwarding.isEnabled && callForwarding.toPhoneNumber) {
+      // forward this call
+      // Add a professional message before forwarding the call
+      twiml.say("Please hold. Your call is being forwarded.");
+
       let dial = twiml.dial({
         record: true,
         recordingStatusCallback: `${BASE_URL}/api/recordingCallback`,
       });
-      dial.client(
+
+      // call forward
+      const toPhoneNumber = callForwarding.toPhoneNumber;
+      dial["number"](
         {
           statusCallback: `${BASE_URL}/api/webhook`,
           statusCallbackEvent: "completed",
         },
-        identity
+        toPhoneNumber
       );
+    } else {
+      // Call should not forward
+      if (deviceStatus === DEVICE_STATUS.INACTIVE) {
+        const provider_number = sanitizePhoneNumber(identity);
+        const devToken = await getTokenFromNumber(provider_number);
+        const resData = await getVoiceCallMsg(devToken);
+        let msg =
+          resData?.voiceMessage ||
+          "We're sorry, but the person you are trying to reach is currently unavailable to take your call.";
+        // device INACTIVE
+        twiml.say(msg);
+      } else {
+        // it means device status active
+        // This is an incoming call
+        let dial = twiml.dial({
+          record: true,
+          recordingStatusCallback: `${BASE_URL}/api/recordingCallback`,
+        });
+        dial.client(
+          {
+            statusCallback: `${BASE_URL}/api/webhook`,
+            statusCallbackEvent: "completed",
+          },
+          identity
+        );
+      }
     }
   } else if (To && Provider_Number) {
     // This is an outgoing call
@@ -217,8 +240,6 @@ const makeOutgoingTextToSpeechCall = async (req, res) => {
       recordingStatusCallback: `${BASE_URL}/api/recordingCallback`,
       statusCallback: `${BASE_URL}/api/callStatusTextToSpeech`,
     });
-
-    console.log("Call SID : ", call.sid);
 
     // Make the API response
     res.type("text/xml");
@@ -306,7 +327,7 @@ const callStatusTextToSpeech = async (req, res) => {
           const parentCallPriceNumber = parseFloat(parentCallPrice);
 
           // Sum the prices
-          const totalPrice = callPriceNumber + parentCallPriceNumber;
+          const totalPrice = (callPriceNumber + parentCallPriceNumber) * 1.4;
 
           const callDetails = {
             to: toNumber,
@@ -338,7 +359,6 @@ const callStatusTextToSpeech = async (req, res) => {
           await newCall.save();
 
           const resp = await addCallRecord(devToken, callDetails);
-          console.log({ callDetails, call, parentCall, resp });
         } else {
           console.log(
             `Price not available yet. Retrying... (${retryCount + 1})`
@@ -367,6 +387,8 @@ const callStatusWebhook = async (req, res) => {
     AccountSid,
   } = req.body;
 
+  const callStatus = req.body.CallStatus;
+
   let toNumber, fromNumber, callDirection;
   if (To.startsWith("client:")) {
     toNumber = extractNumberFromClient(To);
@@ -380,10 +402,38 @@ const callStatusWebhook = async (req, res) => {
   const providerNumber = sanitizePhoneNumber(
     callDirection === "outgoing" ? fromNumber : toNumber
   );
-
   const devToken = await getTokenFromNumber(providerNumber);
   if (!devToken) {
     return res.status(404).end();
+  }
+
+  if (
+    (callStatus === "no-answer" || callStatus === "busy") &&
+    callDirection === "incoming"
+  ) {
+    const missedCallAction = await MissedCallAction.findOne({
+      applyNumber: toNumber,
+    });
+
+    if (missedCallAction) {
+      // so perform the action
+      let channel = "";
+      if (missedCallAction.actionType === "sms") {
+        channel = "sms";
+      } else if (missedCallAction.actionType === "whatsapp") {
+        channel = "whatsapp";
+      }
+      let msgData = {
+        actionType: channel,
+        toNumber: missedCallAction.applyNumber,
+        fromNumber: missedCallAction.fromNumber,
+        message: missedCallAction.message,
+        templateName: missedCallAction.templateName,
+      };
+      if (channel) {
+        await sendMessage(token, msgData);
+      }
+    }
   }
 
   const resData = await getProviderDetails(devToken, providerNumber);
@@ -416,7 +466,7 @@ const callStatusWebhook = async (req, res) => {
           const parentCallPriceNumber = parseFloat(parentCallPrice);
 
           // Sum the prices
-          const totalPrice = callPriceNumber + parentCallPriceNumber;
+          const totalPrice = (callPriceNumber + parentCallPriceNumber) * 1.4;
 
           const callDetails = {
             to: call.to,
@@ -447,7 +497,6 @@ const callStatusWebhook = async (req, res) => {
           await newCall.save();
 
           const resp = await addCallRecord(devToken, callDetails);
-          console.log({ callDetails, call, parentCall, resp });
         } else {
           console.log(
             `Price not available yet. Retrying... (${retryCount + 1})`

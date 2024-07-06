@@ -11,9 +11,17 @@ const { formatAverageCallsDuration } = require("../../utils/common");
 const getCallLogs = async (req, res) => {
   const token = req.token;
 
-  // Extract pageLimit and currentPage from query parameters, with defaults
+  // Extract pageLimit, currentPage, and voiceNumber from query parameters, with defaults
   const pageLimit = parseInt(req.query.pageLimit, 10) || 10;
   const currentPage = parseInt(req.query.currentPage, 10) || 1;
+  const voiceNumber = `+${req.query.voiceNumber}`;
+
+  if (!voiceNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "voiceNumber query parameter is required",
+    });
+  }
 
   try {
     const subaccount = await Subaccount.findOne({ crmToken: token });
@@ -38,7 +46,10 @@ const getCallLogs = async (req, res) => {
 
     // Filter out unwanted calls
     const filteredCalls = rawCalls.filter(
-      (c) => !c.from.startsWith("client:") && !c.to.startsWith("client:")
+      (c) =>
+        (c.from === voiceNumber || c.to === voiceNumber) &&
+        !c.from.startsWith("client:") &&
+        !c.to.startsWith("client:")
     );
 
     // Calculate total results after filtering
@@ -82,7 +93,7 @@ const getCallLogs = async (req, res) => {
       totalResults,
       currentPage,
       pageLimit,
-      currentPageResults: callLogs.length,
+      currentPageResults: callLogs?.length,
     };
 
     res.json(response);
@@ -173,7 +184,6 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
       subaccount = existingSubaccount;
       subaccountSid = subaccount.accountSid;
       subaccountAuthToken = subaccount.authToken;
-      console.log("Subaccount already exists");
     } else {
       // Step 2: Create Subaccount
       subaccount = await client.api.accounts.create({
@@ -181,7 +191,6 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
       });
       subaccountSid = subaccount.sid;
       subaccountAuthToken = subaccount.authToken;
-      console.log("New Subaccount created successfully");
 
       // if subaccount not created
       if (!subaccount) {
@@ -326,8 +335,6 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
       });
     }
 
-    console.log({ purchasedNumber, subaccountSid, subaccountAuthToken });
-
     // Step 5: Save subaccount and phone number details to your database
     if (!existingSubaccount) {
       subaccount = new Subaccount({
@@ -418,6 +425,13 @@ const getAllPurchasedNumbers = async (req, res) => {
 const getCallStatistics = async (req, res) => {
   try {
     const token = req.token;
+    const voiceNumber = `+${req.query.voiceNumber}`;
+    if (!voiceNumber) {
+      return res.status(400).json({
+        success: false,
+        message: "voiceNumber query parameter is required",
+      });
+    }
 
     const subaccount = await Subaccount.findOne({ crmToken: token });
 
@@ -438,9 +452,12 @@ const getCallStatistics = async (req, res) => {
       startTimeAfter: moment().subtract(30, "days").toDate(),
     });
 
-    // Filter out unwanted calls
+    // Filter calls to include only those involving the specified voice number
     const calls = allCalls.filter(
-      (c) => !c.from.startsWith("client:") && !c.to.startsWith("client:")
+      (c) =>
+        (c.from === voiceNumber || c.to === voiceNumber) &&
+        !c.from.startsWith("client:") &&
+        !c.to.startsWith("client:")
     );
 
     const totalCalls = calls.length;
