@@ -46,6 +46,7 @@ router.post("/webhook", callStatusWebhook); // for check call status after call 
 // api for updating status active/inactive from identity(number)
 router.put("/updateDeviceStatus", async (req, res) => {
   const { phoneNumber, deviceStatus } = req.body;
+  console.log({ phoneNumber, deviceStatus });
 
   const newNum = sanitizePhoneNumber(phoneNumber);
   const identity = `+${newNum}`;

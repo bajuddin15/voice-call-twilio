@@ -124,7 +124,7 @@ const voiceResponse = async (req) => {
       forwardedNumber: identity,
     });
 
-    if (callForwarding.isEnabled && callForwarding.toPhoneNumber) {
+    if (callForwarding?.isEnabled && callForwarding?.toPhoneNumber) {
       // forward this call
       // Add a professional message before forwarding the call
       twiml.say("Please hold. Your call is being forwarded.");
