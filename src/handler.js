@@ -431,7 +431,7 @@ const callStatusWebhook = async (req, res) => {
         templateName: missedCallAction.templateName,
       };
       if (channel) {
-        await sendMessage(token, msgData);
+        await sendMessage(devToken, msgData);
       }
     }
   }

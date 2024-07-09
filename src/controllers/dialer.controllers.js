@@ -273,9 +273,10 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
       // Map the phone number to the TwiML app and messaging service
       await subaccountClient.incomingPhoneNumbers(purchasedNumber.sid).update({
         voiceApplicationSid: twimlAppSid,
-        smsMethod: "POST",
         messagingServiceSid: messagingServiceSid,
       });
+
+      console.log("Message service sid map with phoneNumber");
 
       // Fetch detailed information about the purchased number using Lookup API
       const lookupResult = await client.lookups
