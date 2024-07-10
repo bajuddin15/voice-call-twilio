@@ -86,6 +86,7 @@ const tokenGenerator = async (req, res) => {
           message: "Token Generated",
           identity: updatedDetail?.identity,
           token: updatedDetail?.token,
+          deviceStatus: updatedDetail?.deviceStatus,
         });
       }
     } else {
@@ -425,7 +426,7 @@ const callStatusWebhook = async (req, res) => {
       }
       let msgData = {
         actionType: channel,
-        toNumber: missedCallAction.applyNumber,
+        toNumber: fromNumber,
         fromNumber: missedCallAction.fromNumber,
         message: missedCallAction.message,
         templateName: missedCallAction.templateName,

@@ -46,13 +46,13 @@ router.post("/webhook", callStatusWebhook); // for check call status after call 
 // api for updating status active/inactive from identity(number)
 router.put("/updateDeviceStatus", async (req, res) => {
   const { phoneNumber, deviceStatus } = req.body;
-  console.log({ phoneNumber, deviceStatus });
 
   const newNum = sanitizePhoneNumber(phoneNumber);
   const identity = `+${newNum}`;
 
   try {
     const detail = await TwilioAccountDetails.findOne({ identity });
+    // console.log("Detail found:", detail);
 
     if (!detail) {
       return res
@@ -61,15 +61,20 @@ router.put("/updateDeviceStatus", async (req, res) => {
     }
 
     detail.deviceStatus = deviceStatus;
-
-    await detail.save();
+    const savedDetail = await detail.save();
+    // console.log("Updated detail:", savedDetail);
 
     res.status(200).json({
       success: true,
       message: "Details updated",
+      data: savedDetail,
     });
   } catch (error) {
-    console.log("Update status error : ", error?.message);
+    console.error("Update status error:", error);
+    res.status(500).json({
+      success: false,
+      message: "Internal server error",
+    });
   }
 });
 

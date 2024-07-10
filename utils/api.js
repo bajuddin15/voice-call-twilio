@@ -1,5 +1,6 @@
 const FormData = require("form-data");
 const axios = require("axios");
+const { sanitizePhoneNumber } = require("./common");
 
 const getProviderDetails = async (token, providerNumber) => {
   const url =
@@ -180,9 +181,10 @@ const sendMessage = async (token, msgData) => {
   let resData;
   try {
     let channel = msgData?.actionType === "whatsapp" ? "whatsapp" : "sms";
+    let fromnum = sanitizePhoneNumber(fromNumber);
     const formData = new FormData();
     formData.append("to", toNumber);
-    formData.append("fromnum", fromNumber);
+    formData.append("fromnum", fromnum);
     formData.append("msg", message);
     formData.append("channel", channel);
 
