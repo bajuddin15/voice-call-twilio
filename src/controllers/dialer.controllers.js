@@ -228,6 +228,7 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
     let purchasedNumber;
     let phoneNumberStatus = "pending";
     let messagingServiceSid;
+    let twimlAppSid;
 
     try {
       const subaccountClient = require("twilio")(
@@ -235,45 +236,56 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
         subaccountAuthToken
       );
 
+      // Check if a TwiML app exists, else create one
+      const twimlApps = await subaccountClient.applications.list({ limit: 1 });
+      if (twimlApps.length > 0) {
+        twimlAppSid = twimlApps[0].sid;
+      } else {
+        const twimlApp = await subaccountClient.applications.create({
+          friendlyName: "CRM Messaging Voice App",
+          voiceUrl: "https://voice.crm-messaging.cloud/api/voice",
+          voiceMethod: "POST",
+        });
+        twimlAppSid = twimlApp.sid;
+      }
+
+      // Check if a messaging service exists, else create one
+      const messagingServices = await subaccountClient.messaging.services.list({
+        limit: 1,
+      });
+      if (messagingServices.length > 0) {
+        messagingServiceSid = messagingServices[0].sid;
+      } else {
+        let messagingService = await subaccountClient.messaging.services.create(
+          {
+            friendlyName: "CRM Messaging Service",
+          }
+        );
+
+        messagingService = await subaccountClient.messaging
+          .services(messagingService.sid)
+          .update({
+            inboundRequestUrl:
+              "https://app.crm-messaging.cloud/index.php/Message/getMessageTwillio",
+            inboundMethod: "POST",
+          });
+
+        messagingServiceSid = messagingService.sid;
+      }
+
       // Purchase number and configure voice webhook
       purchasedNumber = await subaccountClient.incomingPhoneNumbers.create({
         phoneNumber: phoneNumber,
       });
 
-      // Configure voice webhook URL for the purchased number
+      // Map the phone number to the messaging service first
       await subaccountClient.incomingPhoneNumbers(purchasedNumber.sid).update({
-        voiceUrl: "https://voice.crm-messaging.cloud/api/voice",
-        voiceMethod: "POST",
+        messagingServiceSid: messagingServiceSid,
       });
 
-      // Create a TwiML app
-      const twimlApp = await subaccountClient.applications.create({
-        friendlyName: "CRM Messaging Voice App",
-        voiceUrl: "https://voice.crm-messaging.cloud/api/voice",
-        voiceMethod: "POST",
-      });
-      const twimlAppSid = twimlApp.sid;
-
-      // Create a messaging service
-      let messagingService = await subaccountClient.messaging.services.create({
-        friendlyName: "CRM Messaging Service",
-      });
-
-      // Update the messaging service with the inbound request URL
-      messagingService = await subaccountClient.messaging
-        .services(messagingService.sid)
-        .update({
-          inboundRequestUrl:
-            "https://app.crm-messaging.cloud/index.php/Message/getMessageTwillio",
-          inboundMethod: "POST",
-        });
-
-      messagingServiceSid = messagingService.sid;
-
-      // Map the phone number to the TwiML app and messaging service
+      // Then map the phone number to the TwiML app
       await subaccountClient.incomingPhoneNumbers(purchasedNumber.sid).update({
         voiceApplicationSid: twimlAppSid,
-        messagingServiceSid: messagingServiceSid,
       });
 
       console.log("Message service sid map with phoneNumber");

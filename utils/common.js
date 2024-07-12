@@ -1,6 +1,7 @@
 const moment = require("moment");
 
 const sanitizePhoneNumber = (phoneNumber) => {
+  if (!phoneNumber) return "";
   if (phoneNumber.startsWith("+")) {
     return phoneNumber.substring(1); // Remove the '+' character
   }
