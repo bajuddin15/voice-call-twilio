@@ -20,6 +20,7 @@ const subaccountSchema = new Schema(
       default: "",
       required: true, // Ensure this field is required
       index: true, // Add index
+      unique: true,
     },
     accountSid: {
       type: String,

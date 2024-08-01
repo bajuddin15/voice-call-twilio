@@ -7,6 +7,7 @@ const {
 const Subaccount = require("../models/subaccount.models");
 const PhoneNumber = require("../models/phoneNumber.models");
 const { formatAverageCallsDuration } = require("../../utils/common");
+const Call = require("../models/call.models");
 
 const getCallLogs = async (req, res) => {
   const token = req.token;
@@ -64,10 +65,15 @@ const getCallLogs = async (req, res) => {
           callSid: c.sid,
           limit: 1,
         });
-        const recordingUrl =
+        let recordingUrl =
           recordings.length > 0
             ? `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordings[0].sid}`
             : null;
+
+        if (!recordingUrl && c.status === "completed") {
+          const callData = await Call.findOne({ callSid: c.sid });
+          recordingUrl = callData?.recordingUrl;
+        }
 
         // Determine direction (incoming or outgoing)
         const direction = c.direction === "inbound" ? "incoming" : "outgoing";
@@ -173,50 +179,70 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
   try {
     const accountSid = process.env.TWILIO_ACCOUNT_SID;
     const authToken = process.env.TWILIO_AUTH_TOKEN;
-    const client = require("twilio")(accountSid, authToken);
+    const client = twilio(accountSid, authToken);
 
     // Step 1: Check if subaccount already exists
-    let subaccount;
-    let subaccountSid;
-    let subaccountAuthToken;
-    const existingSubaccount = await Subaccount.findOne({ email });
-    if (existingSubaccount) {
-      subaccount = existingSubaccount;
+    let subaccount = await Subaccount.findOne({ email });
+    let subaccountSid, subaccountAuthToken;
+
+    if (subaccount) {
       subaccountSid = subaccount.accountSid;
       subaccountAuthToken = subaccount.authToken;
     } else {
-      // Step 2: Create Subaccount
-      subaccount = await client.api.accounts.create({
-        friendlyName: email,
-      });
-      subaccountSid = subaccount.sid;
-      subaccountAuthToken = subaccount.authToken;
+      // Step 2: Check if subaccount already exists in Twilio
+      const twilioSubaccounts = await client.api.accounts.list();
+      const existingSubaccount = twilioSubaccounts.find(
+        (acc) => acc.friendlyName === email
+      );
 
-      // if subaccount not created
-      if (!subaccount) {
-        return res.status(409).json({
-          success: false,
-          message: "Subaccount not created",
+      if (existingSubaccount) {
+        subaccountSid = existingSubaccount.sid;
+        subaccountAuthToken = existingSubaccount.authToken;
+
+        // Save the existing subaccount to the database
+        subaccount = new Subaccount({
+          email,
+          crmToken,
+          accountSid: subaccountSid,
+          authToken: subaccountAuthToken,
         });
+
+        await subaccount.save();
+      } else {
+        // Step 3: Create Subaccount in Twilio
+        const createdSubaccount = await client.api.accounts.create({
+          friendlyName: email,
+        });
+
+        if (!createdSubaccount) {
+          return res.status(409).json({
+            success: false,
+            message: "Subaccount not created",
+          });
+        }
+
+        subaccountSid = createdSubaccount.sid;
+        subaccountAuthToken = createdSubaccount.authToken;
+
+        // Save the new subaccount to the database
+        subaccount = new Subaccount({
+          email,
+          crmToken,
+          accountSid: subaccountSid,
+          authToken: subaccountAuthToken,
+        });
+
+        await subaccount.save();
       }
     }
 
     // Step 3: Verify the phone number
     try {
       await client.validationRequests.create({
-        phoneNumber: phoneNumber,
+        phoneNumber,
         friendlyName: email,
       });
     } catch (error) {
-      // Handle error response
-      if (!existingSubaccount) {
-        subaccount = new Subaccount({
-          email: email,
-          crmToken: crmToken,
-          accountSid: subaccountSid,
-          authToken: subaccountAuthToken,
-        });
-      }
       console.error("Error verifying phone number: ", error?.message);
       return res.status(400).json({
         success: false,
@@ -227,16 +253,12 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
     // Step 4: Purchase Number
     let purchasedNumber;
     let phoneNumberStatus = "pending";
-    let messagingServiceSid;
-    let twimlAppSid;
+    let messagingServiceSid, twimlAppSid;
 
     try {
-      const subaccountClient = require("twilio")(
-        subaccountSid,
-        subaccountAuthToken
-      );
+      const subaccountClient = twilio(subaccountSid, subaccountAuthToken);
 
-      // Check if a TwiML app exists, else create one
+      // Check or create TwiML app
       const twimlApps = await subaccountClient.applications.list({ limit: 1 });
       if (twimlApps.length > 0) {
         twimlAppSid = twimlApps[0].sid;
@@ -249,52 +271,45 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
         twimlAppSid = twimlApp.sid;
       }
 
-      // Check if a messaging service exists, else create one
+      // Check or create messaging service
       const messagingServices = await subaccountClient.messaging.services.list({
         limit: 1,
       });
       if (messagingServices.length > 0) {
         messagingServiceSid = messagingServices[0].sid;
       } else {
-        let messagingService = await subaccountClient.messaging.services.create(
-          {
+        const messagingService =
+          await subaccountClient.messaging.services.create({
             friendlyName: "CRM Messaging Service",
-          }
-        );
-
-        messagingService = await subaccountClient.messaging
-          .services(messagingService.sid)
-          .update({
-            inboundRequestUrl:
-              "https://app.crm-messaging.cloud/index.php/Message/getMessageTwillio",
-            inboundMethod: "POST",
           });
+
+        await subaccountClient.messaging.services(messagingService.sid).update({
+          inboundRequestUrl:
+            "https://app.crm-messaging.cloud/index.php/Message/getMessageTwillio",
+          inboundMethod: "POST",
+        });
 
         messagingServiceSid = messagingService.sid;
       }
 
-      // Purchase number and configure voice webhook
+      // Purchase phone number
       purchasedNumber = await subaccountClient.incomingPhoneNumbers.create({
-        phoneNumber: phoneNumber,
+        phoneNumber,
       });
 
-      // Map the phone number to the messaging service first
+      // Configure phone number
       await subaccountClient.incomingPhoneNumbers(purchasedNumber.sid).update({
-        messagingServiceSid: messagingServiceSid,
-      });
-
-      // Then map the phone number to the TwiML app
-      await subaccountClient.incomingPhoneNumbers(purchasedNumber.sid).update({
+        messagingServiceSid,
         voiceApplicationSid: twimlAppSid,
       });
 
-      console.log("Message service sid map with phoneNumber");
+      console.log("Message service SID mapped with phone number");
 
-      // Fetch detailed information about the purchased number using Lookup API
+      // Fetch phone number details
       const lookupResult = await client.lookups
         .phoneNumbers(purchasedNumber.phoneNumber)
         .fetch();
-      const phoneNumberCountry = lookupResult.countryCode; // Example: 'US'
+      const phoneNumberCountry = lookupResult.countryCode;
 
       const apiKey = await subaccountClient.newKeys.create({
         friendlyName: "CRM Messaging API Key",
@@ -331,17 +346,6 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
     } catch (error) {
       console.error("Error purchasing phone number: ", error?.message);
       phoneNumberStatus = "failed";
-
-      // Handle error response
-      if (!existingSubaccount) {
-        subaccount = new Subaccount({
-          email: email,
-          crmToken: crmToken,
-          accountSid: subaccountSid,
-          authToken: subaccountAuthToken,
-        });
-      }
-
       return res.status(409).json({
         success: false,
         message: "Number not purchased",
@@ -349,18 +353,9 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
     }
 
     // Step 5: Save subaccount and phone number details to your database
-    if (!existingSubaccount) {
-      subaccount = new Subaccount({
-        email: email,
-        crmToken: crmToken,
-        accountSid: subaccountSid,
-        authToken: subaccountAuthToken,
-      });
-    }
-
     const newPhoneNumber = new PhoneNumber({
-      crmToken: crmToken,
-      phoneNumber: phoneNumber,
+      crmToken,
+      phoneNumber,
       friendlyName: purchasedNumber ? purchasedNumber.friendlyName : null,
       phoneSid: purchasedNumber ? purchasedNumber.sid : null,
       capabilities: purchasedNumber ? purchasedNumber.capabilities : {},
