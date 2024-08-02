@@ -108,6 +108,114 @@ const getCallLogs = async (req, res) => {
     res.status(500).json({ error: "Failed to retrieve call logs" });
   }
 };
+const getCallLogsByToNumber = async (req, res) => {
+  const token = req.token;
+
+  // Extract pageLimit, currentPage, voiceNumber, and toNumber from query parameters, with defaults
+  const pageLimit = parseInt(req.query.pageLimit, 10) || 10;
+  const currentPage = parseInt(req.query.currentPage, 10) || 1;
+  const voiceNumber = `+${req.query.voiceNumber}`;
+  const toNumber = `+${req.query.toNumber}`;
+
+  if (!voiceNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "voiceNumber query parameter is required",
+    });
+  }
+
+  if (!toNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "toNumber query parameter is required",
+    });
+  }
+
+  try {
+    const subaccount = await Subaccount.findOne({ crmToken: token });
+
+    if (!subaccount) {
+      return res.status(404).json({
+        success: false,
+        message: "Subaccount not found",
+      });
+    }
+    const accountSid = subaccount.accountSid;
+    const authToken = subaccount.authToken;
+
+    const client = twilio(accountSid, authToken);
+
+    // Calculate the offset for pagination
+    const offset = (currentPage - 1) * pageLimit;
+
+    // Fetch a larger batch of calls to account for filtering
+    const fetchLimit = pageLimit * 4; // Adjust as needed to ensure sufficient results after filtering
+    const rawCalls = await client.calls.list({ limit: fetchLimit });
+
+    // Filter out unwanted calls
+    const filteredCalls = rawCalls.filter(
+      (c) =>
+        (c.from === voiceNumber || c.to === voiceNumber) &&
+        (c.from === toNumber || c.to === toNumber) &&
+        !c.from.startsWith("client:") &&
+        !c.to.startsWith("client:")
+    );
+
+    // Calculate total results after filtering
+    const totalResults = filteredCalls.length;
+
+    // Get the calls for the current page
+    const calls = filteredCalls.slice(offset, offset + pageLimit);
+
+    const callLogs = await Promise.all(
+      calls.map(async (c) => {
+        const recordings = await client.recordings.list({
+          callSid: c.sid,
+          limit: 1,
+        });
+        let recordingUrl =
+          recordings.length > 0
+            ? `https://api.twilio.com/2010-04-01/Accounts/${accountSid}/Recordings/${recordings[0].sid}`
+            : null;
+
+        if (!recordingUrl && c.status === "completed") {
+          const callData = await Call.findOne({ callSid: c.sid });
+          recordingUrl = callData?.recordingUrl;
+        }
+
+        // Determine direction (incoming or outgoing)
+        const direction = c.direction === "inbound" ? "incoming" : "outgoing";
+
+        return {
+          sid: c.sid,
+          from: c.from,
+          to: c.to,
+          status: c.status,
+          startTime: c.startTime,
+          endTime: c.endTime,
+          duration: c.duration,
+          recordingUrl,
+          direction, // Add direction field
+        };
+      })
+    );
+
+    const response = {
+      success: true,
+      message: "Found",
+      data: callLogs,
+      totalResults,
+      currentPage,
+      pageLimit,
+      currentPageResults: callLogs?.length,
+    };
+
+    res.json(response);
+  } catch (error) {
+    console.error("Error in retrieving call logs:", error.message);
+    res.status(500).json({ error: "Failed to retrieve call logs" });
+  }
+};
 
 const searchAvailableNumbers = async (req, res) => {
   const { country, digits, capabilities, numberTypes } = req.body;
@@ -584,6 +692,7 @@ const assignPhoneNumberToTeam = async (req, res) => {
 
 module.exports = {
   getCallLogs,
+  getCallLogsByToNumber,
   searchAvailableNumbers,
   createSubaccountAndPurchaseNumber,
   getAllPurchasedNumbers,

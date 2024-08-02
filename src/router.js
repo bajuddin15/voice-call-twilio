@@ -18,6 +18,7 @@ const {
   deleteSubaccount,
   getCallStatistics,
   assignPhoneNumberToTeam,
+  getCallLogsByToNumber,
 } = require("./controllers/dialer.controllers");
 
 const router = new Router();
@@ -80,6 +81,7 @@ router.put("/updateDeviceStatus", async (req, res) => {
 
 // api for retrive call logs
 router.get("/callLogs", protectRoute, getCallLogs);
+router.get("/callLogsByToNumber", protectRoute, getCallLogsByToNumber);
 router.post("/searchNumbers", searchAvailableNumbers);
 router.post("/purchaseNumber", protectRoute, createSubaccountAndPurchaseNumber);
 router.get("/purchasedNumbers", protectRoute, getAllPurchasedNumbers);
