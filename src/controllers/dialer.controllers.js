@@ -6,8 +6,14 @@ const {
 } = require("../../utils/api");
 const Subaccount = require("../models/subaccount.models");
 const PhoneNumber = require("../models/phoneNumber.models");
-const { formatAverageCallsDuration } = require("../../utils/common");
+const {
+  formatAverageCallsDuration,
+  addPlusInNumber,
+} = require("../../utils/common");
 const Call = require("../models/call.models");
+const FormData = require("form-data");
+const { default: axios } = require("axios");
+const { BASE_URL } = require("../../utils/constants");
 
 const getCallLogs = async (req, res) => {
   const token = req.token;
@@ -15,7 +21,7 @@ const getCallLogs = async (req, res) => {
   // Extract pageLimit, currentPage, and voiceNumber from query parameters, with defaults
   const pageLimit = parseInt(req.query.pageLimit, 10) || 10;
   const currentPage = parseInt(req.query.currentPage, 10) || 1;
-  const voiceNumber = `+${req.query.voiceNumber}`;
+  const voiceNumber = addPlusInNumber(req.query.voiceNumber);
 
   if (!voiceNumber) {
     return res.status(400).json({
@@ -42,8 +48,8 @@ const getCallLogs = async (req, res) => {
     const offset = (currentPage - 1) * pageLimit;
 
     // Fetch a larger batch of calls to account for filtering
-    const fetchLimit = pageLimit * 4; // Adjust as needed to ensure sufficient results after filtering
-    const rawCalls = await client.calls.list({ limit: fetchLimit });
+    // const fetchLimit = pageLimit * 4; // Adjust as needed to ensure sufficient results after filtering
+    const rawCalls = await client.calls.list();
 
     // Filter out unwanted calls
     const filteredCalls = rawCalls.filter(
@@ -114,8 +120,8 @@ const getCallLogsByToNumber = async (req, res) => {
   // Extract pageLimit, currentPage, voiceNumber, and toNumber from query parameters, with defaults
   const pageLimit = parseInt(req.query.pageLimit, 10) || 10;
   const currentPage = parseInt(req.query.currentPage, 10) || 1;
-  const voiceNumber = `+${req.query.voiceNumber}`;
-  const toNumber = `+${req.query.toNumber}`;
+  const voiceNumber = addPlusInNumber(req.query.voiceNumber);
+  const toNumber = addPlusInNumber(req.query.toNumber);
 
   if (!voiceNumber) {
     return res.status(400).json({
@@ -149,8 +155,9 @@ const getCallLogsByToNumber = async (req, res) => {
     const offset = (currentPage - 1) * pageLimit;
 
     // Fetch a larger batch of calls to account for filtering
-    const fetchLimit = pageLimit * 4; // Adjust as needed to ensure sufficient results after filtering
-    const rawCalls = await client.calls.list({ limit: fetchLimit });
+    // const fetchLimit = pageLimit; // Adjust as needed to ensure sufficient results after filtering
+    const rawCalls = await client.calls.list();
+    console.log({ rawCalls: rawCalls.length });
 
     // Filter out unwanted calls
     const filteredCalls = rawCalls.filter(
@@ -690,6 +697,287 @@ const assignPhoneNumberToTeam = async (req, res) => {
   }
 };
 
+// add caller id for outbound calls
+const sendOtpValidationRequest = async (req, res) => {
+  const crmToken = encodeURIComponent(req.token);
+  const { email, friendlyName, phoneNumber } = req.body;
+  const validPhoneNumber = phoneNumber.startsWith("+")
+    ? phoneNumber
+    : `+${phoneNumber}`;
+
+  try {
+    const parentAccountSid = process.env.TWILIO_ACCOUNT_SID;
+    const parentAuthToken = process.env.TWILIO_AUTH_TOKEN;
+    const parentAccountClient = twilio(parentAccountSid, parentAuthToken);
+
+    // Step 1: Check if subaccount already exists
+    let subaccount = await Subaccount.findOne({ email });
+    let subaccountSid, subaccountAuthToken;
+
+    if (subaccount) {
+      subaccountSid = subaccount.accountSid;
+      subaccountAuthToken = subaccount.authToken;
+    } else {
+      // Step 2: Check if subaccount already exists in Twilio
+      const twilioSubaccounts = await parentAccountClient.api.accounts.list();
+      const existingSubaccount = twilioSubaccounts.find(
+        (acc) => acc.friendlyName === email
+      );
+
+      if (existingSubaccount) {
+        subaccountSid = existingSubaccount.sid;
+        subaccountAuthToken = existingSubaccount.authToken;
+
+        // Save the existing subaccount to the database
+        subaccount = new Subaccount({
+          email,
+          crmToken,
+          accountSid: subaccountSid,
+          authToken: subaccountAuthToken,
+        });
+        await subaccount.save();
+      } else {
+        // Step 3: Create Subaccount in Twilio
+        const createdSubaccount = await parentAccountClient.api.accounts.create(
+          { friendlyName: email }
+        );
+
+        if (!createdSubaccount) {
+          return res.status(409).json({
+            success: false,
+            message: "Subaccount not created",
+          });
+        }
+
+        subaccountSid = createdSubaccount.sid;
+        subaccountAuthToken = createdSubaccount.authToken;
+
+        // Save the new subaccount to the database
+        subaccount = new Subaccount({
+          email,
+          crmToken,
+          accountSid: subaccountSid,
+          authToken: subaccountAuthToken,
+        });
+        await subaccount.save();
+      }
+    }
+
+    const client = twilio(subaccountSid, subaccountAuthToken);
+
+    // const statusCallbackUrl = `https://workflows.crm-messaging.cloud/workflow/sendwebhookdata/66b21d0a283df02677245072`;
+    const statusCallbackUrl = `${BASE_URL}/api/otpValidationStatus?crmToken=${crmToken}&phoneNumber=${encodeURIComponent(
+      validPhoneNumber
+    )}&friendlyName=${encodeURIComponent(friendlyName)}&subaccountId=${
+      subaccount._id
+    }`;
+
+    const validationRequest = await client.validationRequests.create({
+      friendlyName,
+      phoneNumber: validPhoneNumber,
+      statusCallback: statusCallbackUrl,
+    });
+    console.log({ statusCallbackUrl });
+
+    res.status(200).json({
+      success: true,
+      message: "Request sent",
+      data: validationRequest,
+    });
+  } catch (error) {
+    console.log("Error in add caller id: ", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
+const deleteOutgoingCallerId = async (req, res) => {
+  try {
+    const crmToken = req.token;
+    const { email, phoneNumber } = req.body;
+    let validPhoneNumber = phoneNumber.startsWith("+")
+      ? phoneNumber
+      : `+${phoneNumber}`;
+    const subaccount = await Subaccount.findOne({
+      crmToken,
+      email,
+    });
+
+    if (!subaccount) {
+      return res.status(404).json({
+        success: false,
+        message: "Subaccount not found",
+      });
+    }
+
+    const accountSid = subaccount.accountSid;
+    const authToken = subaccount.authToken;
+
+    const client = twilio(accountSid, authToken);
+
+    const phone = await PhoneNumber.findOne({ phoneNumber: validPhoneNumber });
+
+    let phoneSid;
+
+    if (phone) {
+      phoneSid = phone.phoneSid;
+      await PhoneNumber.findOneAndDelete({ phoneNumber: validPhoneNumber });
+    } else {
+      const outgoingCallerIds = await client.outgoingCallerIds.list();
+      outgoingCallerIds.forEach((o) => {
+        if (o.phoneNumber === validPhoneNumber) {
+          phoneSid = o.sid;
+          return;
+        }
+      });
+    }
+
+    if (!phoneSid) {
+      return res.status(404).json({
+        success: false,
+        message: "Phone sid not found",
+      });
+    }
+
+    await client.outgoingCallerIds(phoneSid).remove();
+    res.status(200).json({
+      success: true,
+      message: "Called id deleted",
+    });
+  } catch (error) {
+    console.log("Error in delete caller id: ", error.message);
+    res.status(500).json({
+      success: false,
+      message: error?.message,
+    });
+  }
+};
+
+const validationStatusWebhook = async (req, res) => {
+  try {
+    const { VerificationStatus, OutgoingCallerIdSid } = req.body;
+    const { crmToken, phoneNumber, friendlyName, subaccountId } = req.query;
+
+    console.log("valid status webhook resp: ", {
+      VerificationStatus,
+      OutgoingCallerIdSid,
+    });
+
+    if (VerificationStatus === "success") {
+      console.log(`Validation successful for ${phoneNumber}`);
+
+      // Save phone number details to the database
+      const newPhoneNumber = new PhoneNumber({
+        crmToken,
+        phoneNumber,
+        friendlyName,
+        phoneSid: OutgoingCallerIdSid,
+        capabilities: {
+          voice: true,
+          sms: false,
+          mms: false,
+          fax: false,
+        },
+        subaccount: subaccountId,
+        status: "purchased",
+        paymentStatus: "paid",
+        pricePaid: "0",
+      });
+
+      await newPhoneNumber.save();
+
+      const subaccount = await Subaccount.findOne({ crmToken });
+
+      const { accountSid, authToken } = subaccount;
+
+      const subaccountClient = twilio(accountSid, authToken);
+
+      let twilioApiKey, twilioApiSecret;
+
+      // Check for existing API keys
+
+      const apiKey = await subaccountClient.newKeys.create({
+        friendlyName: "CRM Messaging API Key",
+      });
+      twilioApiKey = apiKey?.sid;
+      twilioApiSecret = apiKey?.secret;
+
+      // Check or create TwiML app
+      const twimlApps = await subaccountClient.applications.list({ limit: 1 });
+      let twimlAppSid = twimlApps?.length > 0 ? twimlApps[0].sid : null;
+
+      if (!twimlAppSid) {
+        const twimlApp = await subaccountClient.applications.create({
+          friendlyName: "CRM Messaging Voice App",
+          voiceUrl: "https://voice.crm-messaging.cloud/api/voice",
+          voiceMethod: "POST",
+        });
+        twimlAppSid = twimlApp?.sid;
+      }
+
+      // Uncomment and implement this function as necessary
+      await addTwilioVoiceProvider(
+        crmToken,
+        phoneNumber.substring(1),
+        "United States",
+        twimlAppSid,
+        accountSid,
+        authToken,
+        twilioApiKey,
+        twilioApiSecret
+      );
+
+      console.log({
+        newPhoneNumber,
+        subaccount,
+      });
+    } else {
+      console.log(`Validation failed for ${phoneNumber}`);
+    }
+  } catch (error) {
+    console.log("Error in validation status webhook: ", error.message);
+  }
+  res.status(200).json({
+    success: true,
+    message: "Webhook received successfully",
+  });
+};
+
+const checkValidationOfNumber = async (req, res) => {
+  const crmToken = req.token;
+  try {
+    const { phoneNumber } = req.body;
+    const validPhoneNumber = phoneNumber.startsWith("+")
+      ? phoneNumber
+      : `+${phoneNumber}`;
+
+    const phone = await PhoneNumber.findOne({
+      phoneNumber: validPhoneNumber,
+      crmToken,
+    });
+
+    if (!phone && !phone?.phoneSid) {
+      return res.status(404).json({
+        success: false,
+        message: "Not found",
+      });
+    }
+
+    res.status(200).json({
+      success: true,
+      message: "OTP Verified successfully",
+    });
+  } catch (error) {
+    console.log("Error in check validation: ", error.message);
+    res.status(500).json({
+      success: false,
+      message: error.message,
+    });
+  }
+};
+
 module.exports = {
   getCallLogs,
   getCallLogsByToNumber,
@@ -699,4 +987,9 @@ module.exports = {
   deleteSubaccount,
   getCallStatistics,
   assignPhoneNumberToTeam,
+  // callerids reqs
+  sendOtpValidationRequest,
+  validationStatusWebhook,
+  deleteOutgoingCallerId,
+  checkValidationOfNumber,
 };

@@ -310,7 +310,7 @@ const callStatusTextToSpeech = async (req, res) => {
     );
 
     const fetchCallDetails = async (retryCount = 0) => {
-      if (retryCount >= 5) {
+      if (retryCount > 10) {
         // Maximum retries
         console.error("Failed to fetch call price after multiple attempts");
         return;
@@ -318,6 +318,41 @@ const callStatusTextToSpeech = async (req, res) => {
       try {
         const call = await client.calls(CallSid).fetch();
         const parentCall = await client.calls(ParentCallSid).fetch();
+
+        if (retryCount === 10 && !call.price) {
+          const totalPrice = "-0.1";
+
+          const callDetails = {
+            to: call.to,
+            from: call.from,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection:
+              call.direction === "outbound-dial" ? "outgoing" : "incoming",
+            price: totalPrice,
+            currency: call.priceUnit,
+            callSid: CallSid,
+          };
+          const newCall = new Call({
+            callSid: CallSid,
+            parentCallSid: ParentCallSid,
+            accountSid: AccountSid,
+            to: call.to,
+            from: call.from,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection:
+              call.direction === "outbound-dial" ? "outgoing" : "incoming",
+            callPrice: totalPrice,
+            parentCallPrice: totalPrice,
+            currency: call.priceUnit,
+            totalPrice: totalPrice,
+          });
+          await newCall.save();
+
+          const resp = await addCallRecord(devToken, callDetails);
+          console.log({ resp });
+        }
 
         if (call.price) {
           const callPrice = call.price;
@@ -360,6 +395,7 @@ const callStatusTextToSpeech = async (req, res) => {
           await newCall.save();
 
           const resp = await addCallRecord(devToken, callDetails);
+          console.log({ resp });
         } else {
           console.log(
             `Price not available yet. Retrying... (${retryCount + 1})`
@@ -449,7 +485,7 @@ const callStatusWebhook = async (req, res) => {
     );
 
     const fetchCallDetails = async (retryCount = 0) => {
-      if (retryCount >= 5) {
+      if (retryCount > 10) {
         // Maximum retries
         console.error("Failed to fetch call price after multiple attempts");
         return;
@@ -457,6 +493,41 @@ const callStatusWebhook = async (req, res) => {
       try {
         const call = await client.calls(CallSid).fetch();
         const parentCall = await client.calls(ParentCallSid).fetch();
+
+        if (retryCount === 10 && !call.price) {
+          const totalPrice = "-0.1";
+
+          const callDetails = {
+            to: call.to,
+            from: call.from,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection:
+              call.direction === "outbound-dial" ? "outgoing" : "incoming",
+            price: totalPrice,
+            currency: call.priceUnit,
+            callSid: CallSid,
+          };
+          const newCall = new Call({
+            callSid: CallSid,
+            parentCallSid: ParentCallSid,
+            accountSid: AccountSid,
+            to: call.to,
+            from: call.from,
+            recordingUrl: RecordingUrl,
+            callDuration: CallDuration,
+            callDirection:
+              call.direction === "outbound-dial" ? "outgoing" : "incoming",
+            callPrice: totalPrice,
+            parentCallPrice: totalPrice,
+            currency: call.priceUnit,
+            totalPrice: totalPrice,
+          });
+          await newCall.save();
+
+          const resp = await addCallRecord(devToken, callDetails);
+          console.log({ resp });
+        }
 
         if (call.price) {
           const callPrice = call.price;

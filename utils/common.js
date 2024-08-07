@@ -27,8 +27,18 @@ const formatAverageCallsDuration = (seconds) => {
   return formattedDuration.trim() || "0s";
 };
 
+const addPlusInNumber = (phoneNumber) => {
+  if (!phoneNumber) return "";
+  if (phoneNumber.startsWith("+")) {
+    return phoneNumber;
+  }
+
+  return `+${phoneNumber}`;
+};
+
 module.exports = {
   sanitizePhoneNumber,
   extractNumberFromClient,
   formatAverageCallsDuration,
+  addPlusInNumber,
 };

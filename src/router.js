@@ -19,6 +19,10 @@ const {
   getCallStatistics,
   assignPhoneNumberToTeam,
   getCallLogsByToNumber,
+  sendOtpValidationRequest,
+  deleteOutgoingCallerId,
+  validationStatusWebhook,
+  checkValidationOfNumber,
 } = require("./controllers/dialer.controllers");
 
 const router = new Router();
@@ -94,5 +98,11 @@ router.put(
   protectRoute,
   assignPhoneNumberToTeam
 );
+
+// caller id apis
+router.post("/sendOtpOfCallerId", protectRoute, sendOtpValidationRequest);
+router.post("/otpValidationStatus", validationStatusWebhook);
+router.post("/deleteOutgoingCallerId", protectRoute, deleteOutgoingCallerId);
+router.post("/checkValidationOfNumber", protectRoute, checkValidationOfNumber);
 
 module.exports = router;
