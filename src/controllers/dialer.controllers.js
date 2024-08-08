@@ -482,8 +482,7 @@ const createSubaccountAndPurchaseNumber = async (req, res) => {
 
     subaccount.phoneNumbers.push(newPhoneNumber._id);
 
-    await subaccount.save();
-    await newPhoneNumber.save();
+    await Promise.all([newPhoneNumber.save(), subaccount.save()]);
 
     res.status(200).json({
       success: true,
@@ -823,6 +822,11 @@ const deleteOutgoingCallerId = async (req, res) => {
 
     if (phone) {
       phoneSid = phone.phoneSid;
+      // Remove the phone ID from subaccount's phoneNumbers array using $pull
+      await Subaccount.updateOne(
+        { _id: subaccount._id },
+        { $pull: { phoneNumbers: phone._id } }
+      );
       await PhoneNumber.findOneAndDelete({ phoneNumber: validPhoneNumber });
     } else {
       const outgoingCallerIds = await client.outgoingCallerIds.list();
@@ -886,9 +890,10 @@ const validationStatusWebhook = async (req, res) => {
         pricePaid: "0",
       });
 
-      await newPhoneNumber.save();
-
       const subaccount = await Subaccount.findOne({ crmToken });
+      subaccount.phoneNumbers.push(newPhoneNumber._id);
+
+      await Promise.all([newPhoneNumber.save(), subaccount.save()]);
 
       const { accountSid, authToken } = subaccount;
 
