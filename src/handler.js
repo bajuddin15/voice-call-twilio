@@ -9,6 +9,7 @@ const {
   addCallRecord,
   getVoiceCallMsg,
   sendMessage,
+  getProfileByToken,
 } = require("../utils/api");
 const {
   sanitizePhoneNumber,
@@ -24,6 +25,17 @@ const tokenGenerator = async (req, res) => {
   const { devToken, providerNumber } = req.body;
 
   try {
+    const resProfile = await getProfileByToken(devToken);
+    if (resProfile && resProfile?.status === 200) {
+      const profileData = resProfile?.data;
+      if (profileData && profileData?.plan === "1") {
+        // it is free plan so don't make token
+        return res.status(403).json({
+          status: false,
+          message: "Please upgrade your free plan to pro",
+        });
+      }
+    }
     const resData = await getProviderDetails(devToken, providerNumber);
     if (resData && resData?.provider_number) {
       const twilioAccountDetails = {
@@ -125,7 +137,17 @@ const voiceResponse = async (req) => {
       forwardedNumber: identity,
     });
 
-    if (callForwarding?.isEnabled && callForwarding?.toPhoneNumber) {
+    const provider_number = sanitizePhoneNumber(identity);
+    const devToken = await getTokenFromNumber(provider_number);
+    const resProfile = await getProfileByToken(devToken);
+    const profileData = resProfile?.data;
+    if (profileData && profileData?.plan === "1") {
+      // it is free plan so don't make call
+      let msg =
+        "Incoming calls to this number are currently unavailable. Please try again later.";
+      // device INACTIVE
+      twiml.say(msg);
+    } else if (callForwarding?.isEnabled && callForwarding?.toPhoneNumber) {
       // forward this call
       // Add a professional message before forwarding the call
       twiml.say("Please hold. Your call is being forwarded.");
@@ -147,8 +169,6 @@ const voiceResponse = async (req) => {
     } else {
       // Call should not forward
       if (deviceStatus === DEVICE_STATUS.INACTIVE) {
-        const provider_number = sanitizePhoneNumber(identity);
-        const devToken = await getTokenFromNumber(provider_number);
         const resData = await getVoiceCallMsg(devToken);
         let msg =
           resData?.voiceMessage ||

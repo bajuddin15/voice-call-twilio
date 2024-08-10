@@ -206,6 +206,23 @@ const sendMessage = async (token, msgData) => {
   return resData;
 };
 
+const getProfileByToken = async (token) => {
+  const url = "https://app.crm-messaging.cloud/index.php/Api/getProfileInfo";
+
+  const headers = {
+    Authorization: `Bearer ${token}`,
+  };
+
+  let resData;
+  try {
+    const { data } = await axios.get(url, { headers });
+    resData = data;
+  } catch (error) {
+    resData = null;
+  }
+  return resData;
+};
+
 module.exports = {
   getProviderDetails,
   getTokenFromNumber,
@@ -214,4 +231,5 @@ module.exports = {
   addTwilioSmsProvider,
   addTwilioVoiceProvider,
   sendMessage,
+  getProfileByToken,
 };
