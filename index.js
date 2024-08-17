@@ -10,6 +10,9 @@ const router = require("./src/router");
 const stripeRoutes = require("./src/routes/stripe.routes");
 const twilioConfigRoutes = require("./src/routes/twilioConfig.routes");
 
+// telnyx
+const telnyxRoutes = require("./src/routes/telnyx.routes");
+
 // Create Express webapp
 dotenv.config();
 const app = express();
@@ -26,6 +29,7 @@ app.get("/", (req, res) => {
 app.use("/api", router);
 app.use("/api", stripeRoutes);
 app.use("/api/config", twilioConfigRoutes);
+app.use("/api/telnyx", telnyxRoutes);
 
 // Create http server and run it
 const server = http.createServer(app);
