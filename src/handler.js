@@ -23,9 +23,11 @@ const MissedCallAction = require("./models/missedCallAction.models");
 
 const tokenGenerator = async (req, res) => {
   const { devToken, providerNumber } = req.body;
+  console.log({ devToken, providerNumber });
 
   try {
     const resProfile = await getProfileByToken(devToken);
+    console.log({ resProfile });
     if (resProfile && resProfile?.status === 200) {
       const profileData = resProfile?.data;
       if (profileData && profileData?.plan === "1") {
@@ -37,6 +39,7 @@ const tokenGenerator = async (req, res) => {
       }
     }
     const resData = await getProviderDetails(devToken, providerNumber);
+    console.log({ resData });
     if (resData && resData?.provider_number) {
       const twilioAccountDetails = {
         provider_number:
@@ -67,6 +70,7 @@ const tokenGenerator = async (req, res) => {
       const twilioDetails = await TwilioAccountDetails.findOne({
         identity: twilioAccountDetails.provider_number,
       });
+      console.log({ twilioAccountDetails, identity, twilioDetails });
 
       if (!twilioDetails) {
         const newDetail = new TwilioAccountDetails({
