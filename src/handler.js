@@ -52,7 +52,11 @@ const tokenGenerator = async (req, res) => {
         twilio_api_secret: resData?.twilio_api_secret,
       };
 
+      console.log({ twilioAccountDetails });
+
       const identity = twilioAccountDetails?.provider_number;
+
+      console.log({ identity });
 
       const accessToken = new AccessToken(
         twilioAccountDetails.account_sid,
@@ -60,12 +64,18 @@ const tokenGenerator = async (req, res) => {
         twilioAccountDetails.twilio_api_secret
       );
 
+      console.log({ accessToken });
+
       accessToken.identity = identity;
+
+      console.log({ accessToken });
       const grant = new VoiceGrant({
         outgoingApplicationSid: twilioAccountDetails.twiml_app_sid,
         incomingAllow: true,
       });
       accessToken.addGrant(grant);
+
+      console.log({ grant });
 
       const twilioDetails = await TwilioAccountDetails.findOne({
         identity: twilioAccountDetails.provider_number,
