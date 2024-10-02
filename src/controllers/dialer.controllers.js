@@ -1,5 +1,6 @@
 const twilio = require("twilio");
 const moment = require("moment");
+const { Parser } = require("json2csv");
 const {
   addTwilioSmsProvider,
   addTwilioVoiceProvider,
@@ -11,8 +12,6 @@ const {
   addPlusInNumber,
 } = require("../../utils/common");
 const Call = require("../models/call.models");
-const FormData = require("form-data");
-const { default: axios } = require("axios");
 const { BASE_URL } = require("../../utils/constants");
 
 const getCallLogs = async (req, res) => {
@@ -983,6 +982,196 @@ const checkValidationOfNumber = async (req, res) => {
   }
 };
 
+// export twilio call logs
+const exportCallLogs = async (req, res) => {
+  const token = req.token;
+  const voiceNumber = addPlusInNumber(req.query.voiceNumber);
+
+  if (!voiceNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "voiceNumber query parameter is required",
+    });
+  }
+
+  try {
+    const subaccount = await Subaccount.findOne({ crmToken: token });
+
+    if (!subaccount) {
+      return res.status(404).json({
+        success: false,
+        message: "Subaccount not found",
+      });
+    }
+    const accountSid = subaccount.accountSid;
+    const authToken = subaccount.authToken;
+
+    const client = twilio(accountSid, authToken);
+
+    // Fetch all call logs
+    const rawCalls = await client.calls.list();
+
+    // Filter out unwanted calls
+    const filteredCalls = rawCalls.filter(
+      (c) =>
+        (c.from === voiceNumber || c.to === voiceNumber) &&
+        !c.from.startsWith("client:") &&
+        !c.to.startsWith("client:")
+    );
+
+    const callLogs = await Promise.all(
+      filteredCalls.map(async (c) => {
+        const callDetail = await Call.findOne({ callSid: c.sid });
+        const callPrice = callDetail?.callPrice
+          ? `${callDetail?.callPrice}$`
+          : "Not available";
+
+        const direction = c.direction === "inbound" ? "incoming" : "outgoing";
+
+        return {
+          from: c.from,
+          to: c.to,
+          status: c.status,
+          startTime: c.startTime,
+          endTime: c.endTime,
+          duration: c.duration,
+          direction,
+          callPrice,
+        };
+      })
+    );
+
+    // Define the fields for CSV export
+    const fields = [
+      { label: "To", value: "to" },
+      { label: "From", value: "from" },
+      { label: "Status", value: "status" },
+      { label: "Start Time", value: "startTime" },
+      { label: "End Time", value: "endTime" },
+      { label: "Duration (s)", value: "duration" },
+      { label: "Direction", value: "direction" },
+      { label: "Credits", value: "callPrice" },
+    ];
+
+    // Convert JSON to CSV
+    const json2csvParser = new Parser({ fields });
+    const csv = json2csvParser.parse(callLogs);
+
+    // Set response headers for file download
+    res.header("Content-Type", "text/csv");
+    res.attachment("call_logs_export.csv");
+    res.send(csv);
+  } catch (error) {
+    console.error("Error in exporting call logs:", error.message);
+    res.status(500).json({ success: false, message: error.message });
+  }
+};
+
+const exportCallLogsByToNumber = async (req, res) => {
+  const token = req.token;
+  const voiceNumber = addPlusInNumber(req.query.voiceNumber);
+  const toNumber = addPlusInNumber(req.query.toNumber);
+
+  if (!voiceNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "voiceNumber query parameter is required",
+    });
+  }
+
+  if (!toNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "toNumber query parameter is required",
+    });
+  }
+
+  try {
+    const subaccount = await Subaccount.findOne({ crmToken: token });
+
+    if (!subaccount) {
+      return res.status(404).json({
+        success: false,
+        message: "Subaccount not found",
+      });
+    }
+
+    const accountSid = subaccount.accountSid;
+    const authToken = subaccount.authToken;
+
+    const client = twilio(accountSid, authToken);
+
+    // Fetch all calls
+    const rawCalls = await client.calls.list();
+
+    // Filter calls based on voiceNumber and toNumber
+    const filteredCalls = rawCalls.filter(
+      (c) =>
+        (c.from === voiceNumber || c.to === voiceNumber) &&
+        (c.from === toNumber || c.to === toNumber) &&
+        !c.from.startsWith("client:") &&
+        !c.to.startsWith("client:")
+    );
+
+    if (filteredCalls.length === 0) {
+      return res.status(404).json({
+        success: false,
+        message: "No call logs found for export",
+      });
+    }
+
+    // Map the call data and retrieve recording URLs
+    const callLogs = await Promise.all(
+      filteredCalls.map(async (c) => {
+        const callDetail = await Call.findOne({ callSid: c.sid });
+        const callPrice = callDetail?.callPrice
+          ? `${callDetail?.callPrice}$`
+          : "Not available";
+        // Determine call direction
+        const direction = c.direction === "inbound" ? "incoming" : "outgoing";
+
+        return {
+          from: c.from,
+          to: c.to,
+          status: c.status,
+          startTime: c.startTime,
+          endTime: c.endTime,
+          duration: c.duration,
+          direction,
+          callPrice,
+        };
+      })
+    );
+
+    // Define CSV fields
+    const fields = [
+      { label: "To", value: "to" },
+      { label: "From", value: "from" },
+      { label: "Status", value: "status" },
+      { label: "Start Time", value: "startTime" },
+      { label: "End Time", value: "endTime" },
+      { label: "Duration (s)", value: "duration" },
+      { label: "Direction", value: "direction" },
+      { label: "Credits", value: "callPrice" },
+    ];
+
+    // Convert JSON to CSV
+    const json2csvParser = new Parser({ fields });
+    const csv = json2csvParser.parse(callLogs);
+
+    // Set headers for file download
+    res.header("Content-Type", "text/csv");
+    res.attachment("call_logs_export.csv");
+    res.send(csv);
+  } catch (error) {
+    console.error("Error in exporting call logs:", error.message);
+    res.status(500).json({
+      success: false,
+      message: "Failed to export call logs",
+    });
+  }
+};
+
 module.exports = {
   getCallLogs,
   getCallLogsByToNumber,
@@ -997,4 +1186,7 @@ module.exports = {
   validationStatusWebhook,
   deleteOutgoingCallerId,
   checkValidationOfNumber,
+  // export call logs
+  exportCallLogs,
+  exportCallLogsByToNumber,
 };

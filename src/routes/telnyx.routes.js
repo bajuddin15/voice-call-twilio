@@ -1,5 +1,6 @@
 const express = require("express");
 const FormData = require("form-data");
+const { Parser } = require("json2csv");
 const axios = require("axios");
 const { getProviderDetails } = require("../../utils/api");
 const { protectRoute } = require("../middlewares/auth.middlewares");
@@ -151,6 +152,119 @@ router.get("/callLogs", protectRoute, async (req, res) => {
     res.status(500).json({
       success: false,
       message: error?.message,
+    });
+  }
+});
+
+router.get("/exportTelnyxCallLogs", protectRoute, async (req, res) => {
+  const crmToken = req.token;
+  const providerNumber = req.query.voiceNumber;
+  const voiceNumber = addPlusInNumber(req.query.voiceNumber);
+  const toNumber = req.query.toNumber
+    ? addPlusInNumber(req.query.toNumber)
+    : null;
+
+  if (!voiceNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "voiceNumber query parameter is required",
+    });
+  }
+
+  try {
+    const resData = await getProviderDetails(crmToken, providerNumber);
+
+    if (resData?.provider_name === "telnyx") {
+      const API_KEY = resData.account_token;
+      const connection_id = resData.twiml_app_sid;
+      const apiUrl = "https://api.telnyx.com/v2/recordings";
+      const headers = {
+        Authorization: `Bearer ${API_KEY}`,
+      };
+
+      // Fetch all records
+      const params = {
+        "page[size]": 100000, // Set large size to fetch all records in one go
+        "filter[connection_id]": connection_id,
+      };
+
+      const { data } = await axios.get(apiUrl, { headers, params });
+
+      if (data?.data?.length > 0) {
+        // Filter and format the data
+        const calls = data.data
+          .filter((c) => {
+            const isValidFrom = c.from.startsWith("+");
+            const isValidTo = c.to.startsWith("+");
+            const involvesVoiceNumber =
+              c.from === voiceNumber || c.to === voiceNumber;
+            const involvesToNumber = c.from === toNumber || c.to === toNumber;
+
+            if (toNumber) {
+              return (
+                isValidFrom &&
+                isValidTo &&
+                involvesVoiceNumber &&
+                involvesToNumber
+              );
+            }
+            return isValidFrom && isValidTo && involvesVoiceNumber;
+          })
+          .map((c) => {
+            const direction = c.from === voiceNumber ? "outgoing" : "incoming";
+            return {
+              sid: c.id,
+              from: c.from,
+              to: c.to,
+              status: c.status,
+              startTime: c.recording_started_at,
+              endTime: c.recording_ended_at,
+              duration: c.duration_millis
+                ? Math.floor(c.duration_millis / 1000)
+                : 0,
+              recordingUrl: c.download_urls?.wav || null,
+              direction,
+              callPrice: "Not available",
+            };
+          });
+
+        // Define the fields for CSV export
+        const fields = [
+          { label: "To", value: "to" },
+          { label: "From", value: "from" },
+          { label: "Status", value: "status" },
+          { label: "Start Time", value: "startTime" },
+          { label: "End Time", value: "endTime" },
+          { label: "Duration", value: "duration" },
+          { label: "Direction", value: "direction" },
+          { label: "Credits", value: "callPrice" },
+        ];
+
+        // Convert the data into CSV format using Parser
+        const json2csvParser = new Parser({ fields });
+        const csv = json2csvParser.parse(calls);
+
+        // Set response headers for CSV download
+        res.header("Content-Type", "text/csv");
+        res.attachment("telnyx_call_logs.csv");
+        return res.status(200).send(csv);
+      } else {
+        return res.status(404).json({
+          success: false,
+          message: "No call logs found",
+        });
+      }
+    } else {
+      return res.status(404).json({
+        success: false,
+        message: "Provider details not found",
+      });
+    }
+  } catch (error) {
+    console.error("Error in exporting Telnyx call logs:", error.message);
+    return res.status(500).json({
+      success: false,
+      message: "Failed to export call logs",
     });
   }
 });

@@ -23,6 +23,8 @@ const {
   deleteOutgoingCallerId,
   validationStatusWebhook,
   checkValidationOfNumber,
+  exportCallLogs,
+  exportCallLogsByToNumber,
 } = require("./controllers/dialer.controllers");
 
 const router = new Router();
@@ -91,6 +93,10 @@ router.post("/purchaseNumber", protectRoute, createSubaccountAndPurchaseNumber);
 router.get("/purchasedNumbers", protectRoute, getAllPurchasedNumbers);
 router.get("/calls/states", protectRoute, getCallStatistics);
 router.delete("/delete-subaccount", deleteSubaccount);
+
+// export call logs
+router.get("/exportCallLogs", protectRoute, exportCallLogs);
+router.get("/exportCallLogsByToNumber", protectRoute, exportCallLogsByToNumber);
 
 //
 router.put(
