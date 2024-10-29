@@ -10,6 +10,33 @@ const router = express.Router();
 
 // Prefix- /api/telnyx
 
+router.post("/sip_credientials", async (req, res) => {
+  const { crmToken, providerNumber } = req.body;
+  try {
+    const resData = await getProviderDetails(crmToken, providerNumber);
+    if (resData && resData?.provider_name === "telnyx") {
+      const sip_username = resData.twilio_api_key;
+      const sip_password = resData.twilio_api_secret;
+      res.status(200).json({
+        success: true,
+        message: "Details found",
+        data: { sip_username, sip_password },
+      });
+    } else {
+      res.status(404).json({
+        success: false,
+        message: "Provider details not found",
+      });
+    }
+  } catch (error) {
+    console.log("Error in telnyx get sip details: ", error?.message);
+    res.status(500).json({
+      success: false,
+      message: error?.message,
+    });
+  }
+});
+
 router.post("/loginToken", async (req, res) => {
   const { crmToken, providerNumber } = req.body;
   try {
