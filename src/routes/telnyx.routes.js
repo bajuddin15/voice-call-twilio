@@ -296,6 +296,57 @@ router.get("/exportTelnyxCallLogs", protectRoute, async (req, res) => {
   }
 });
 
+// make telnyx voice to tex call
+router.post("/makeTextToSpeechCall", async (req, res) => {
+  const { toNumber, fromNumber, message, telnyxApiKey, connectionId } =
+    req.body;
+  const CAMPAIGN_BASE_URL = process.env.CAMPAIGN_BASE_URL;
+  try {
+    // Api URL for Telnyx API
+    const apiUrl = `https://api.telnyx.com/v2/texml/calls/${connectionId}`;
+    let getTexmlUrl = `${CAMPAIGN_BASE_URL}/api/texml.xml`;
+    const bodyData = {
+      voice: "Polly.Joanna",
+      content: message,
+    };
+    const { data } = await axios.post(getTexmlUrl, bodyData);
+    const { url: texmlUrl } = data;
+    console.log({ texmlUrl });
+
+    const response = await axios.post(
+      apiUrl,
+      {
+        To: `+${toNumber}`,
+        From: `+${fromNumber}`,
+        Url: texmlUrl,
+      },
+      {
+        headers: {
+          Authorization: `Bearer ${telnyxApiKey}`,
+          "Content-Type": "application/x-www-form-urlencoded",
+        },
+      }
+    );
+    console.log(
+      `Telnyx text to speech call ${fromNumber} to ${toNumber} initiated successfully`
+    );
+    res.status(200).json({
+      success: true,
+      message: "Telnyx call initiated successfully",
+      data: response.data,
+    });
+  } catch (error) {
+    console.log(
+      "Error in make text to speech call telnyx route: ",
+      error?.message
+    );
+    res.status(500).json({
+      success: false,
+      message: error?.message,
+    });
+  }
+});
+
 // TODO: Start Recording
 router.post("/startRecording", async (req, res) => {
   try {
