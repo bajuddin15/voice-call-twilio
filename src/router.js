@@ -7,6 +7,8 @@ const {
   recordingCall,
   callStatusTextToSpeech,
   callStatusWebhook,
+  confrenceCallStatusWebhook,
+  makeConfrenceCall,
 } = require("./handler");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
 const { protectRoute } = require("./middlewares/auth.middlewares");
@@ -26,6 +28,7 @@ const {
   exportCallLogs,
   exportCallLogsByToNumber,
 } = require("./controllers/dialer.controllers");
+const { createCallRecordInZoho } = require("../utils/api");
 
 const router = new Router();
 
@@ -47,8 +50,12 @@ router.post("/makeTextToSpeechCall", makeOutgoingTextToSpeechCall);
 
 // recording callback route
 router.post("/recordingCallback", recordingCall);
-router.post("/callStatusTextToSpeech", callStatusTextToSpeech); // for check textToSpeech call status after call end
+router.all("/callStatusTextToSpeech", callStatusTextToSpeech); // for check textToSpeech call status after call end
 router.post("/webhook", callStatusWebhook); // for check call status after call end
+
+// Confrence call
+router.post("/makeConfrenceCall", protectRoute, makeConfrenceCall);
+router.all("/twilioConfrenceCallWebhook", confrenceCallStatusWebhook);
 
 // api for updating status active/inactive from identity(number)
 router.put("/updateDeviceStatus", async (req, res) => {

@@ -10,6 +10,7 @@ const {
   getVoiceCallMsg,
   sendMessage,
   getProfileByToken,
+  createCallRecordInZoho,
 } = require("../utils/api");
 const {
   sanitizePhoneNumber,
@@ -351,9 +352,13 @@ const callStatusTextToSpeech = async (req, res) => {
       }
       try {
         const call = await client.calls(CallSid).fetch();
-        const parentCall = await client.calls(ParentCallSid).fetch();
+        console.log({ findCall: call });
+        let parentCall;
+        if (ParentCallSid) {
+          parentCall = await client.calls(ParentCallSid).fetch();
+        }
 
-        if (retryCount === 10 && !call.price) {
+        if (retryCount === 10 && !call?.price) {
           const totalPrice = "-0.1";
 
           const callDetails = {
@@ -364,12 +369,12 @@ const callStatusTextToSpeech = async (req, res) => {
             callDirection:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
             price: totalPrice,
-            currency: call.priceUnit,
+            currency: call?.priceUnit,
             callSid: CallSid,
           };
           const newCall = new Call({
             callSid: CallSid,
-            parentCallSid: ParentCallSid,
+            parentCallSid: ParentCallSid || "",
             accountSid: AccountSid,
             to: call.to,
             from: call.from,
@@ -385,12 +390,33 @@ const callStatusTextToSpeech = async (req, res) => {
           await newCall.save();
 
           const resp = await addCallRecord(devToken, callDetails);
-          console.log({ resp });
+          const zohoCallRecordData = {
+            subject: `CRM Messaging call`,
+            callType:
+              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callPurpose: "Follow-up",
+            callFrom: call.from,
+            relatedTo: "", // zoho crm id
+            callDetails: call.status,
+            callStartTime: call.startTime,
+            callDuration: call.duration,
+            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            billable: true,
+            callResult: "",
+            crmToken: devToken,
+            providerNumber,
+            findZohoNumber:
+              call.direction === "outbound-api" ? call.to : call.from,
+          };
+          await createCallRecordInZoho(zohoCallRecordData);
+          console.log({ "Add call record response: ": resp });
         }
 
-        if (call.price) {
+        if (call?.price) {
           const callPrice = call.price;
-          const parentCallPrice = parentCall.price ? parentCall.price : "-0.0";
+          const parentCallPrice = parentCall?.price
+            ? parentCall?.price
+            : "-0.0";
 
           // Convert the string prices to numbers
           const callPriceNumber = parseFloat(callPrice);
@@ -408,13 +434,13 @@ const callStatusTextToSpeech = async (req, res) => {
             price: totalPrice.toString(),
             currency: call.priceUnit,
             callSid: CallSid,
-            parentCallSid: ParentCallSid,
-            parentCallPrice: parentCall.price,
+            parentCallSid: ParentCallSid || "",
+            parentCallPrice: parentCall?.price || "-0.0",
           };
 
           const newCall = new Call({
             callSid: CallSid,
-            parentCallSid: ParentCallSid,
+            parentCallSid: ParentCallSid || "",
             accountSid: AccountSid,
             to: toNumber,
             from: fromNumber,
@@ -422,14 +448,33 @@ const callStatusTextToSpeech = async (req, res) => {
             callDuration: CallDuration,
             callDirection: callDirection,
             callPrice: call.price,
-            parentCallPrice: parentCall.price,
+            parentCallPrice: parentCall?.price || "-0.0",
             currency: call.priceUnit,
             totalPrice: totalPrice.toString(),
           });
           await newCall.save();
 
           const resp = await addCallRecord(devToken, callDetails);
-          console.log({ resp });
+          const zohoCallRecordData = {
+            subject: `CRM Messaging call`,
+            callType:
+              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callPurpose: "Follow-up",
+            callFrom: call.from,
+            relatedTo: "", // zoho crm id
+            callDetails: call.status,
+            callStartTime: call.startTime,
+            callDuration: call.duration,
+            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            billable: true,
+            callResult: "",
+            crmToken: devToken,
+            providerNumber,
+            findZohoNumber:
+              call.direction === "outbound-api" ? call.to : call.from,
+          };
+          await createCallRecordInZoho(zohoCallRecordData);
+          console.log({ "Add call record response: ": resp });
         } else {
           console.log(
             `Price not available yet. Retrying... (${retryCount + 1})`
@@ -437,14 +482,177 @@ const callStatusTextToSpeech = async (req, res) => {
           setTimeout(() => fetchCallDetails(retryCount + 1), 5000); // Retry after 5 seconds
         }
       } catch (error) {
-        console.error(error);
+        console.error("Error in add call record to CRMM: ", error);
       }
     };
 
     setTimeout(() => fetchCallDetails(), 10000); // Initial delay before first fetch
   }
 
+  // if (req.body.CallStatus === "completed" && req.query?.confressName) {
+  //   const confressName = req.query?.confressName;
+  //   const client = twilio(resData.account_sid, resData.account_token);
+
+  //   try {
+  //     await client.conferences(confressName).update({ status: "completed" });
+  //     console.log("Conference ended successfully.");
+  //   } catch (error) {
+  //     console.error("Error ending the conference:", error);
+  //   }
+  // }
+
   res.status(200).end();
+};
+
+const makeConfrenceCall = async (req, res) => {
+  const token = req.token;
+  const { toNumber, fromNumber, agentNumber } = req.body;
+  try {
+    const providerNumber = sanitizePhoneNumber(fromNumber);
+    const resData = await getProviderDetails(token, providerNumber);
+    if (!resData || !resData.provider_number) {
+      return res
+        .status(404)
+        .json({ success: false, message: "Provider details not found" });
+    }
+    const client = twilio(resData.account_sid, resData.account_token);
+    const voiceBackendUrl = BASE_URL;
+    // Step 1: Call the customer and direct them to the conference room
+    const call = await client.calls.create({
+      url: `${voiceBackendUrl}/api/twilioConfrenceCallWebhook?step=customer&agentNumber=${encodeURIComponent(
+        agentNumber
+      )}&confressName=${fromNumber}_${toNumber}`,
+      to: toNumber,
+      from: fromNumber, // Replace with your Twilio number
+      record: true,
+      statusCallback: `${voiceBackendUrl}/api/callStatusTextToSpeech?confressName=${fromNumber}_${toNumber}`,
+    });
+    res.status(200).send({
+      success: true,
+      message: `Initiating call to customer: ${call.sid}`,
+      callSid: call.sid,
+    });
+  } catch (error) {
+    console.log("Error in make confrence call: ", error?.message);
+    res.status(500).json({
+      success: false,
+      message: error?.message,
+    });
+  }
+};
+const confrenceCallStatusWebhook = async (req, res) => {
+  const twiml = new twilio.twiml.VoiceResponse();
+  const step = Array.isArray(req.query.step)
+    ? req.query.step[0]
+    : req.query.step;
+  const CallStatus = req.query.CallStatus || req.body.CallStatus;
+  const CallSid = req.query.CallSid || req.body.CallSid;
+  const agentNumber = req.query.agentNumber;
+  const conferenceRoomName = req.query.confressName;
+
+  console.log({ conferenceRoomName });
+
+  const fromNumber = req.body.From;
+
+  try {
+    const providerNumber = sanitizePhoneNumber(fromNumber);
+    const devToken = await getTokenFromNumber(providerNumber);
+    if (!devToken) {
+      return res.status(404).end();
+    }
+    console.log({ devToken, providerNumber });
+    const resData = await getProviderDetails(devToken, providerNumber);
+    if (resData && resData.provider_number) {
+      const TWILIO_ACCOUNT_DETAIL = {
+        accountSid: resData.account_sid,
+        authToken: resData.account_token,
+      };
+      const client = require("twilio")(
+        TWILIO_ACCOUNT_DETAIL.accountSid,
+        TWILIO_ACCOUNT_DETAIL.authToken
+      );
+
+      console.log(
+        "Webhook hit. Step:",
+        step,
+        "CallStatus:",
+        CallStatus,
+        "CallSid:",
+        CallSid
+      );
+
+      if (step === "customer" && CallStatus === "in-progress") {
+        // Step 2: Direct the customer to the conference room
+        console.log("Customer answered. Redirecting to conference room...");
+        console.log({ agentNumber, fromNumber });
+
+        // Add the introductory message
+        twiml.say("Please hold on, we are connecting you to the conference.");
+
+        // Optional: Add a slight pause to make the transition smoother
+        twiml.pause({ length: 2 }); // Pause for 2 seconds
+
+        twiml.dial().conference(conferenceRoomName);
+        res.type("text/xml");
+        res.send(twiml.toString());
+
+        // Initiate call to agent after customer joins conference
+        setTimeout(async () => {
+          try {
+            const voiceBackendUrl = BASE_URL;
+            const callResp = await client.calls.create({
+              url: `${voiceBackendUrl}/api/twilioConfrenceCallWebhook?step=agent&confressName=${conferenceRoomName}`,
+              to: agentNumber,
+              from: fromNumber, // Replace with your Twilio number
+              record: true,
+              statusCallback: `${voiceBackendUrl}/api/callStatusTextToSpeech?confressName=${conferenceRoomName}`,
+            });
+            console.log("Agent call initiated successfully: ", {
+              sid: callResp.sid,
+            });
+          } catch (error) {
+            console.error("Error initiating call to agent:", error?.message);
+          }
+        }, 1000);
+      } else if (step === "agent" && CallStatus === "in-progress") {
+        // Step 3: Direct the agent to the same conference room
+        console.log(
+          "Agent answered. Connecting to the same conference room..."
+        );
+
+        twiml.dial().conference(conferenceRoomName);
+        res.type("text/xml");
+        res.send(twiml.toString());
+      } else if (CallStatus === "completed") {
+        // Step 4: Handle call completion to end the conference
+        console.log("A participant has disconnected. Ending the conference...");
+
+        // Terminate the conference by ending the call
+        try {
+          await client
+            .conferences(conferenceRoomName)
+            .update({ status: "completed" });
+          console.log("Conference ended successfully.");
+        } catch (error) {
+          console.error("Error ending the conference:", error);
+        }
+
+        res.type("text/xml");
+        res.send(twiml.toString());
+      } else {
+        console.log("Invalid webhook call or status.");
+        res.status(404).send("Invalid request");
+      }
+    } else {
+      console.log("Provider details not found");
+      res
+        .status(404)
+        .json({ success: false, message: "Provider details not found" });
+    }
+  } catch (error) {
+    console.log("Call confrence status controller: ", error?.message);
+    res.status(500).send();
+  }
 };
 
 const callStatusWebhook = async (req, res) => {
@@ -560,6 +768,25 @@ const callStatusWebhook = async (req, res) => {
           await newCall.save();
 
           const resp = await addCallRecord(devToken, callDetails);
+          const zohoCallRecordData = {
+            subject: `CRM Messaging call`,
+            callType:
+              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callPurpose: "Follow-up",
+            callFrom: call.from,
+            relatedTo: "", // zoho crm id
+            callDetails: call.status,
+            callStartTime: call.startTime,
+            callDuration: call.duration,
+            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            billable: true,
+            callResult: "",
+            crmToken: devToken,
+            providerNumber,
+            findZohoNumber:
+              call.direction === "outbound-api" ? call.to : call.from,
+          };
+          await createCallRecordInZoho(zohoCallRecordData);
           console.log({ resp });
         }
 
@@ -603,6 +830,25 @@ const callStatusWebhook = async (req, res) => {
           await newCall.save();
 
           const resp = await addCallRecord(devToken, callDetails);
+          const zohoCallRecordData = {
+            subject: `CRM Messaging call`,
+            callType:
+              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callPurpose: "Follow-up",
+            callFrom: call.from,
+            relatedTo: "", // zoho crm id
+            callDetails: call.status,
+            callStartTime: call.startTime,
+            callDuration: call.duration,
+            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            billable: true,
+            callResult: "",
+            crmToken: devToken,
+            providerNumber,
+            findZohoNumber:
+              call.direction === "outbound-api" ? call.to : call.from,
+          };
+          await createCallRecordInZoho(zohoCallRecordData);
         } else {
           console.log(
             `Price not available yet. Retrying... (${retryCount + 1})`
@@ -636,4 +882,6 @@ module.exports = {
   recordingCall,
   callStatusTextToSpeech,
   callStatusWebhook,
+  confrenceCallStatusWebhook,
+  makeConfrenceCall,
 };
