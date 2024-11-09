@@ -392,8 +392,9 @@ const callStatusTextToSpeech = async (req, res) => {
           const resp = await addCallRecord(devToken, callDetails);
           const zohoCallRecordData = {
             subject: `CRM Messaging call`,
-            callType:
-              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callType: call.direction.includes("outbound")
+              ? "Outbound"
+              : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
@@ -405,8 +406,9 @@ const callStatusTextToSpeech = async (req, res) => {
             callResult: "",
             crmToken: devToken,
             providerNumber,
-            findZohoNumber:
-              call.direction === "outbound-api" ? call.to : call.from,
+            findZohoNumber: call.direction.includes("outbound")
+              ? call.to
+              : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
           console.log({ "Add call record response: ": resp });
@@ -457,8 +459,9 @@ const callStatusTextToSpeech = async (req, res) => {
           const resp = await addCallRecord(devToken, callDetails);
           const zohoCallRecordData = {
             subject: `CRM Messaging call`,
-            callType:
-              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callType: call.direction.includes("outbound")
+              ? "Outbound"
+              : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
@@ -470,8 +473,9 @@ const callStatusTextToSpeech = async (req, res) => {
             callResult: "",
             crmToken: devToken,
             providerNumber,
-            findZohoNumber:
-              call.direction === "outbound-api" ? call.to : call.from,
+            findZohoNumber: call.direction.includes("outbound")
+              ? call.to
+              : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
           console.log({ "Add call record response: ": resp });
@@ -770,8 +774,9 @@ const callStatusWebhook = async (req, res) => {
           const resp = await addCallRecord(devToken, callDetails);
           const zohoCallRecordData = {
             subject: `CRM Messaging call`,
-            callType:
-              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callType: call.direction.includes("outbound")
+              ? "Outbound"
+              : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
@@ -783,8 +788,9 @@ const callStatusWebhook = async (req, res) => {
             callResult: "",
             crmToken: devToken,
             providerNumber,
-            findZohoNumber:
-              call.direction === "outbound-api" ? call.to : call.from,
+            findZohoNumber: call.direction.includes("outbound")
+              ? call.to
+              : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
           console.log({ resp });
@@ -832,8 +838,9 @@ const callStatusWebhook = async (req, res) => {
           const resp = await addCallRecord(devToken, callDetails);
           const zohoCallRecordData = {
             subject: `CRM Messaging call`,
-            callType:
-              call.direction === "outbound-api" ? "Outbound" : "Inbound",
+            callType: call.direction.includes("outbound")
+              ? "Outbound"
+              : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
@@ -845,8 +852,9 @@ const callStatusWebhook = async (req, res) => {
             callResult: "",
             crmToken: devToken,
             providerNumber,
-            findZohoNumber:
-              call.direction === "outbound-api" ? call.to : call.from,
+            findZohoNumber: call.direction.includes("outbound")
+              ? call.to
+              : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
         } else {
