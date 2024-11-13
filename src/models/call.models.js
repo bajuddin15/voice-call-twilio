@@ -5,7 +5,6 @@ const callSchema = new Schema(
   {
     callSid: {
       type: String,
-      unique: true,
     },
     parentCallSid: {
       type: String,
@@ -39,6 +38,15 @@ const callSchema = new Schema(
       type: String,
     },
     totalPrice: {
+      type: String,
+    },
+    status: {
+      type: String,
+    },
+    startTime: {
+      type: String,
+    },
+    endTime: {
       type: String,
     },
   },

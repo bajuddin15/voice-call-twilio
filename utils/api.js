@@ -345,7 +345,7 @@ const createCallRecordInZoho = async ({
     if (findLead) {
       const leadData = findLead.data;
       for (const item of leadData) {
-        const leadId = leadData.id;
+        const leadId = item.id;
         let response = await axios.post(
           `${zohoApiDomain}/crm/v2/Calls`,
           {
@@ -375,7 +375,22 @@ const createCallRecordInZoho = async ({
           }
         );
         console.log("Zoho call record added successfully for lead: ", {
-          response: response.data,
+          response: response.data.data,
+          Payload: {
+            Subject: subject,
+            Call_Type: callType,
+            Call_Purpose: callPurpose,
+            Call_From: callFrom,
+            Related_To: leadId, // use lead ID for "Leads"
+            Call_Details: callDetails,
+            Call_Start_Time: startTime,
+            Call_Duration: duration,
+            Description: description,
+            Billable: billable,
+            Call_Result: callResult,
+            What_Id: leadId,
+            $se_module: "Leads",
+          },
         });
       }
     }

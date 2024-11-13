@@ -9,6 +9,7 @@ const {
   callStatusWebhook,
   confrenceCallStatusWebhook,
   makeConfrenceCall,
+  myOperatorCallWebhook,
 } = require("./handler");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
 const { protectRoute } = require("./middlewares/auth.middlewares");
@@ -28,7 +29,6 @@ const {
   exportCallLogs,
   exportCallLogsByToNumber,
 } = require("./controllers/dialer.controllers");
-const { createCallRecordInZoho } = require("../utils/api");
 
 const router = new Router();
 
@@ -56,6 +56,9 @@ router.post("/webhook", callStatusWebhook); // for check call status after call 
 // Confrence call
 router.post("/makeConfrenceCall", protectRoute, makeConfrenceCall);
 router.all("/twilioConfrenceCallWebhook", confrenceCallStatusWebhook);
+
+// My Operator call
+router.all("/myOperatorCallWebhook", myOperatorCallWebhook);
 
 // api for updating status active/inactive from identity(number)
 router.put("/updateDeviceStatus", async (req, res) => {
@@ -105,7 +108,6 @@ router.delete("/delete-subaccount", deleteSubaccount);
 router.get("/exportCallLogs", protectRoute, exportCallLogs);
 router.get("/exportCallLogsByToNumber", protectRoute, exportCallLogsByToNumber);
 
-//
 router.put(
   "/assignPhoneNumber/:phoneSid",
   protectRoute,

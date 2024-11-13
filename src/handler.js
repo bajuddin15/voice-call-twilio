@@ -364,7 +364,7 @@ const callStatusTextToSpeech = async (req, res) => {
           const callDetails = {
             to: call.to,
             from: call.from,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
@@ -378,7 +378,7 @@ const callStatusTextToSpeech = async (req, res) => {
             accountSid: AccountSid,
             to: call.to,
             from: call.from,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
@@ -388,20 +388,32 @@ const callStatusTextToSpeech = async (req, res) => {
             totalPrice: totalPrice,
           });
           await newCall.save();
-
-          const resp = await addCallRecord(devToken, callDetails);
+          let resp;
+          if (call.status === "completed") {
+            resp = await addCallRecord(devToken, callDetails);
+          }
           const zohoCallRecordData = {
-            subject: `CRM Messaging call`,
-            callType: call.direction.includes("outbound")
-              ? "Outbound"
-              : "Inbound",
+            subject:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed Call"
+                : call.direction.includes("outbound")
+                ? `Outgoing Call ${call.to}`
+                : `Incoming Call ${call.from}`,
+            callType:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed"
+                : call.direction.includes("outbound")
+                ? "Outbound"
+                : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
             callDetails: call.status,
             callStartTime: call.startTime,
             callDuration: call.duration,
-            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            description: `Follow-up call with recording available at: ${
+              RecordingUrl || ""
+            }`,
             billable: true,
             callResult: "",
             crmToken: devToken,
@@ -430,7 +442,7 @@ const callStatusTextToSpeech = async (req, res) => {
           const callDetails = {
             to: toNumber,
             from: fromNumber,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection: callDirection,
             price: totalPrice.toString(),
@@ -446,7 +458,7 @@ const callStatusTextToSpeech = async (req, res) => {
             accountSid: AccountSid,
             to: toNumber,
             from: fromNumber,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection: callDirection,
             callPrice: call.price,
@@ -456,19 +468,32 @@ const callStatusTextToSpeech = async (req, res) => {
           });
           await newCall.save();
 
-          const resp = await addCallRecord(devToken, callDetails);
+          if (call.status === "completed") {
+            const resp = await addCallRecord(devToken, callDetails);
+          }
+
           const zohoCallRecordData = {
-            subject: `CRM Messaging call`,
-            callType: call.direction.includes("outbound")
-              ? "Outbound"
-              : "Inbound",
+            subject:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed Call"
+                : call.direction.includes("outbound")
+                ? `Outgoing Call ${call.to}`
+                : `Incoming Call ${call.from}`,
+            callType:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed"
+                : call.direction.includes("outbound")
+                ? "Outbound"
+                : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
             callDetails: call.status,
             callStartTime: call.startTime,
             callDuration: call.duration,
-            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            description: `Follow-up call with recording available at: ${
+              RecordingUrl || ""
+            }`,
             billable: true,
             callResult: "",
             crmToken: devToken,
@@ -738,20 +763,23 @@ const callStatusWebhook = async (req, res) => {
       }
       try {
         const call = await client.calls(CallSid).fetch();
-        const parentCall = await client.calls(ParentCallSid).fetch();
-
+        console.log({ findCall: call });
+        let parentCall;
+        if (ParentCallSid) {
+          parentCall = await client.calls(ParentCallSid).fetch();
+        }
         if (retryCount === 10 && !call.price) {
           const totalPrice = "-0.1";
 
           const callDetails = {
             to: call.to,
             from: call.from,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
             price: totalPrice,
-            currency: call.priceUnit,
+            currency: call?.priceUnit,
             callSid: CallSid,
           };
           const newCall = new Call({
@@ -760,7 +788,7 @@ const callStatusWebhook = async (req, res) => {
             accountSid: AccountSid,
             to: call.to,
             from: call.from,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
@@ -771,19 +799,32 @@ const callStatusWebhook = async (req, res) => {
           });
           await newCall.save();
 
-          const resp = await addCallRecord(devToken, callDetails);
+          let resp;
+          if (call.status === "completed") {
+            resp = await addCallRecord(devToken, callDetails);
+          }
           const zohoCallRecordData = {
-            subject: `CRM Messaging call`,
-            callType: call.direction.includes("outbound")
-              ? "Outbound"
-              : "Inbound",
+            subject:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed Call"
+                : call.direction.includes("outbound")
+                ? `Outgoing Call ${call.to}`
+                : `Incoming Call ${call.from}`,
+            callType:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed"
+                : call.direction.includes("outbound")
+                ? "Outbound"
+                : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
             callDetails: call.status,
             callStartTime: call.startTime,
             callDuration: call.duration,
-            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            description: `Follow-up call with recording available at: ${
+              RecordingUrl || ""
+            }`,
             billable: true,
             callResult: "",
             crmToken: devToken,
@@ -793,12 +834,13 @@ const callStatusWebhook = async (req, res) => {
               : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
-          console.log({ resp });
         }
 
-        if (call.price) {
+        if (call?.price) {
           const callPrice = call.price;
-          const parentCallPrice = parentCall.price ? parentCall.price : "-0.0";
+          const parentCallPrice = parentCall?.price
+            ? parentCall?.price
+            : "-0.0";
 
           // Convert the string prices to numbers
           const callPriceNumber = parseFloat(callPrice);
@@ -810,7 +852,7 @@ const callStatusWebhook = async (req, res) => {
           const callDetails = {
             to: call.to,
             from: call.from,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
@@ -824,7 +866,7 @@ const callStatusWebhook = async (req, res) => {
             accountSid: AccountSid,
             to: call.to,
             from: call.from,
-            recordingUrl: RecordingUrl,
+            recordingUrl: RecordingUrl || "",
             callDuration: CallDuration,
             callDirection:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
@@ -837,17 +879,27 @@ const callStatusWebhook = async (req, res) => {
 
           const resp = await addCallRecord(devToken, callDetails);
           const zohoCallRecordData = {
-            subject: `CRM Messaging call`,
-            callType: call.direction.includes("outbound")
-              ? "Outbound"
-              : "Inbound",
+            subject:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed Call"
+                : call.direction.includes("outbound")
+                ? `Outgoing Call ${call.to}`
+                : `Incoming Call ${call.from}`,
+            callType:
+              call.status === "busy" || call.status === "no-answer"
+                ? "Missed"
+                : call.direction.includes("outbound")
+                ? "Outbound"
+                : "Inbound",
             callPurpose: "Follow-up",
             callFrom: call.from,
             relatedTo: "", // zoho crm id
             callDetails: call.status,
             callStartTime: call.startTime,
             callDuration: call.duration,
-            description: `Follow-up call with recording available at: ${RecordingUrl}`,
+            description: `Follow-up call with recording available at: ${
+              RecordingUrl || ""
+            }`,
             billable: true,
             callResult: "",
             crmToken: devToken,
@@ -874,6 +926,105 @@ const callStatusWebhook = async (req, res) => {
   res.status(200).end();
 };
 
+// webhook endpoint for myOperator call
+const myOperatorCallWebhook = async (req, res) => {
+  const webhookData = req.body;
+
+  const { to, from, recording, status, direction } = req.query;
+
+  try {
+    // Define call direction based on the `_ty` property
+
+    const providerNumber = sanitizePhoneNumber(from);
+    const devToken = await getTokenFromNumber(providerNumber);
+
+    // Extract duration in seconds by converting '_dr' to a number format
+    const durationParts = webhookData._dr ? webhookData._dr.split(":") : "";
+    const callDurationInSeconds = webhookData._dr
+      ? parseInt(durationParts[0]) * 3600 +
+        parseInt(durationParts[1]) * 60 +
+        parseInt(durationParts[2])
+      : "0";
+
+    let callStatus = "";
+    if (status === "1") {
+      callStatus = "completed";
+    } else if (status === "2") {
+      callStatus = "missed";
+    }
+    const callDetails = {
+      callSid: `webhookData._ci_${Date.now()}`, // Unique Call ID
+      to, // Recipient number
+      from, // Caller number
+      recordingUrl: recording || "NA", // Recording URL if available
+      callDuration: callDurationInSeconds, // Duration in seconds
+      callDirection: direction, // Incoming or outgoing
+      status: callStatus,
+      startTime: new Date(webhookData._st * 1000).toISOString(), // Start time in ISO format
+      endTime: new Date(webhookData._et * 1000).toISOString(), // End time in ISO format
+    };
+
+    console.log("Parsed Call Details:", callDetails);
+
+    const newCall = new Call(callDetails);
+    await newCall.save();
+
+    if (!devToken) {
+      return res.status(404).end();
+    }
+
+    // add call record to zoho
+    const zohoCallRecordData = {
+      subject:
+        callStatus === "missed"
+          ? "Missed Call"
+          : direction === "outgoing"
+          ? `Outgoing Call ${to}`
+          : `Incoming Call ${from}`,
+      callType:
+        callStatus === "missed"
+          ? "Missed"
+          : direction === "outgoing"
+          ? "Outbound"
+          : "Inbound",
+      callPurpose: "Follow-up",
+      callFrom: from,
+      relatedTo: "", // zoho crm id
+      callDetails: callStatus,
+      callStartTime: callDetails.startTime,
+      callDuration: callDetails.callDuration,
+      description: `Follow-up call with recording available at: ${
+        recording || ""
+      }`,
+      billable: true,
+      callResult: "",
+      crmToken: devToken,
+      providerNumber,
+      findZohoNumber: direction === "outgoing" ? to : from,
+    };
+    await createCallRecordInZoho(zohoCallRecordData);
+
+    // You can then save callDetails to your database or log it as required
+  } catch (error) {
+    console.error("Error processing webhook data:", error);
+    return res
+      .status(500)
+      .json({ status: "error", message: "Internal server error" });
+  }
+
+  res.status(200).json({ status: "success" });
+};
+
+// const myOperatorCallLogs = async (req, res) => {
+//   try {
+//   } catch (error) {
+//     res.status(500).json({
+//       success: false,
+//       message: "Internal server error",
+//     });
+//   }
+// };
+
 /**
  * Checks if the given value is valid as phone number
  * @param {Number|String} number
@@ -892,4 +1043,5 @@ module.exports = {
   callStatusWebhook,
   confrenceCallStatusWebhook,
   makeConfrenceCall,
+  myOperatorCallWebhook,
 };
