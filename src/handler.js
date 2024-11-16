@@ -11,6 +11,8 @@ const {
   sendMessage,
   getProfileByToken,
   createCallRecordInZoho,
+  updateMessageStatusById,
+  updateMessageStatusByCallId,
 } = require("../utils/api");
 const {
   sanitizePhoneNumber,
@@ -423,6 +425,22 @@ const callStatusTextToSpeech = async (req, res) => {
               : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
+          if (req.query?.messageId) {
+            // update message status for voice campaign
+            const messageId = req.query.messageId;
+            let status = call.status;
+            if (
+              call.status === "busy" ||
+              call.status === "no-answer" ||
+              call.status === "completed" ||
+              call.status === "failed"
+            ) {
+              status = call.status;
+            } else {
+              status = "busy";
+            }
+            await updateMessageStatusById(messageId, status);
+          }
           console.log({ "Add call record response: ": resp });
         }
 
@@ -468,9 +486,7 @@ const callStatusTextToSpeech = async (req, res) => {
           });
           await newCall.save();
 
-          if (call.status === "completed") {
-            const resp = await addCallRecord(devToken, callDetails);
-          }
+          let resp = await addCallRecord(devToken, callDetails);
 
           const zohoCallRecordData = {
             subject:
@@ -503,6 +519,22 @@ const callStatusTextToSpeech = async (req, res) => {
               : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
+          if (req.query?.messageId) {
+            // update message status for voice campaign
+            const messageId = req.query.messageId;
+            let status = call.status;
+            if (
+              call.status === "busy" ||
+              call.status === "no-answer" ||
+              call.status === "completed" ||
+              call.status === "failed"
+            ) {
+              status = call.status;
+            } else {
+              status = "busy";
+            }
+            await updateMessageStatusById(messageId, status);
+          }
           console.log({ "Add call record response: ": resp });
         } else {
           console.log(
@@ -799,9 +831,8 @@ const callStatusWebhook = async (req, res) => {
           });
           await newCall.save();
 
-          let resp;
           if (call.status === "completed") {
-            resp = await addCallRecord(devToken, callDetails);
+            let resp = await addCallRecord(devToken, callDetails);
           }
           const zohoCallRecordData = {
             subject:
@@ -931,6 +962,8 @@ const myOperatorCallWebhook = async (req, res) => {
   const webhookData = req.body;
 
   const { to, from, recording, status, direction } = req.query;
+  const callId = webhookData?._ri;
+  // console.log({ Query: req.query, Body: req.body });
 
   try {
     // Define call direction based on the `_ty` property
@@ -1003,6 +1036,12 @@ const myOperatorCallWebhook = async (req, res) => {
       findZohoNumber: direction === "outgoing" ? to : from,
     };
     await createCallRecordInZoho(zohoCallRecordData);
+
+    if (callId) {
+      let status = callStatus;
+      if (callStatus === "missed") status = "busy";
+      await updateMessageStatusByCallId(callId, status);
+    }
 
     // You can then save callDetails to your database or log it as required
   } catch (error) {

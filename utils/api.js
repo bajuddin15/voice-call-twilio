@@ -501,6 +501,35 @@ const findContactByPhoneInZoho = async (
   }
 };
 
+const updateMessageStatusById = async (messageId, status) => {
+  try {
+    const { data } = await axios.put(
+      "https://campaigns.crm-messaging.cloud/api/messages/updateMessageStatus",
+      {
+        messageId,
+        status,
+      }
+    );
+    console.log("Update message status resp: ", data);
+  } catch (error) {
+    console.log("Error in update message status: ", error?.message);
+  }
+};
+const updateMessageStatusByCallId = async (callId, status) => {
+  try {
+    const { data } = await axios.put(
+      "https://campaigns.crm-messaging.cloud/api/messages/updateMessageStatus",
+      {
+        callId,
+        status,
+      }
+    );
+    console.log("Update message status resp: ", data);
+  } catch (error) {
+    console.log("Error in update message status: ", error?.message);
+  }
+};
+
 module.exports = {
   getProviderDetails,
   getTokenFromNumber,
@@ -513,4 +542,6 @@ module.exports = {
   createCallRecordInZoho,
   findLeadByPhoneInZoho,
   findContactByPhoneInZoho,
+  updateMessageStatusById,
+  updateMessageStatusByCallId,
 };
