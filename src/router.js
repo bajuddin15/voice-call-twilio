@@ -10,6 +10,9 @@ const {
   confrenceCallStatusWebhook,
   makeConfrenceCall,
   myOperatorCallWebhook,
+  makeMyOperatorCall,
+  checkMyOperatorCallStatus,
+  myOperatorCallLogs,
 } = require("./handler");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
 const { protectRoute } = require("./middlewares/auth.middlewares");
@@ -58,6 +61,9 @@ router.post("/makeConfrenceCall", protectRoute, makeConfrenceCall);
 router.all("/twilioConfrenceCallWebhook", confrenceCallStatusWebhook);
 
 // My Operator call
+router.post("/makeMyOperatorCall", makeMyOperatorCall);
+router.post("/checkMyOperatorCallStatus", checkMyOperatorCallStatus);
+router.get("/myOperatorCallLogs", protectRoute, myOperatorCallLogs);
 router.all("/myOperatorCallWebhook", myOperatorCallWebhook);
 
 // api for updating status active/inactive from identity(number)

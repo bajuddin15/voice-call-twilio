@@ -3,6 +3,37 @@ const axios = require("axios");
 const moment = require("moment");
 const { sanitizePhoneNumber } = require("./common");
 
+const getMyOperatorRecordingUrl = async (token, file) => {
+  const apiUrl = `https://developers.myoperator.co/recordings/link?token=${token}&file=${file}`;
+  let recordingUrl = "";
+  try {
+    const { data } = await axios.get(apiUrl);
+    if (data?.status === "success" && data?.url) {
+      const url = data?.url;
+      // 1️⃣ Fetch media from Twilio (as stream)
+      const response = await axios.get(url, { responseType: "stream" });
+
+      // 2️⃣ Upload it directly to your server API
+      const formData = new FormData();
+      formData.append("file", response.data, { filename: `${Date.now()}` }); // Adjust filename as needed
+
+      const uploadResponse = await axios.post(
+        `https://api.hellocrm.ai/api/upload`,
+        formData,
+        {
+          headers: { "Content-Type": "multipart/form-data" },
+        }
+      );
+
+      recordingUrl = uploadResponse.data.url; // Assume API responds with { url: "your-uploaded-url" }
+    }
+  } catch (error) {
+    console.log("Error in upload myOperator recording: ", error?.message);
+    recordingUrl = "";
+  }
+  return recordingUrl;
+};
+
 const getProviderDetails = async (token, providerNumber) => {
   const url =
     "https://app.crm-messaging.cloud/index.php/api/fetchProviderDetails";
@@ -530,6 +561,78 @@ const updateMessageStatusByCallId = async (callId, status) => {
   }
 };
 
+const createZohoIncomingCallLead = async (crmToken, phoneNumber) => {
+  try {
+    const configData = await getCRMConfig(crmToken);
+    if (!configData) {
+      console.log("Zoho refreshToken config not found");
+      return null;
+    }
+
+    const zohoRefreshToken = configData.zohoRefreshToken;
+    const zohoAccountServer = configData.zohoAccountServer;
+    const zohoApiDomain = configData.zohoApiDomain;
+
+    const accessTokenResp = await getZohoAccessToken(
+      zohoRefreshToken,
+      zohoAccountServer
+    );
+    const zohoAccessToken = accessTokenResp.access_token;
+
+    // Step - 1 First of all find zoho lead with that data
+    // if already there then not create
+    const findLead = await findLeadByPhoneInZoho(
+      phoneNumber,
+      zohoAccessToken,
+      zohoApiDomain
+    );
+
+    if (findLead && findLead.data?.length > 0) {
+      console.log("Zoho lead already present");
+      return;
+    }
+
+    // if not then create
+    const leadData = {
+      Last_Name: "CRM Messaging",
+      Mobile: phoneNumber,
+      Phone: phoneNumber,
+    };
+
+    const resp = await createZohoLead(zohoAccessToken, zohoApiDomain, leadData);
+    console.log("Zoho lead created resp: ", resp.data);
+  } catch (error) {
+    console.error("Error creating zoho lead record:", error);
+  }
+};
+
+// create zoho lead
+const createZohoLead = async (zohoAccessToken, zohoApiDomain, leadData) => {
+  try {
+    const apiUrl = `${zohoApiDomain}/crm/v2/Leads`;
+    const response = await axios.post(
+      apiUrl,
+      {
+        data: [leadData],
+      },
+      {
+        headers: {
+          Authorization: `Zoho-oauthtoken ${zohoAccessToken}`,
+          "Content-Type": "application/json",
+        },
+      }
+    );
+
+    return response.data;
+  } catch (error) {
+    console.error(
+      "Error creating lead:",
+      error.response?.data || error.message
+    );
+    throw error;
+  }
+};
+
 module.exports = {
   getProviderDetails,
   getTokenFromNumber,
@@ -544,4 +647,6 @@ module.exports = {
   findContactByPhoneInZoho,
   updateMessageStatusById,
   updateMessageStatusByCallId,
+  createZohoIncomingCallLead,
+  getMyOperatorRecordingUrl,
 };

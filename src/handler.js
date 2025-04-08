@@ -13,6 +13,8 @@ const {
   createCallRecordInZoho,
   updateMessageStatusById,
   updateMessageStatusByCallId,
+  createZohoIncomingCallLead,
+  getMyOperatorRecordingUrl,
 } = require("../utils/api");
 const {
   sanitizePhoneNumber,
@@ -23,6 +25,7 @@ const Call = require("./models/call.models");
 const TwilioAccountDetails = require("./models/twilioAccountDetails");
 const CallForwarding = require("./models/callForwarding.models");
 const MissedCallAction = require("./models/missedCallAction.models");
+const axios = require("axios");
 
 const tokenGenerator = async (req, res) => {
   const { devToken, providerNumber } = req.body;
@@ -381,8 +384,8 @@ const callStatusTextToSpeech = async (req, res) => {
             to: call.to,
             from: call.from,
             recordingUrl: RecordingUrl || "",
-            callDuration: CallDuration,
-            callDirection:
+            duration: CallDuration,
+            direction:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
             callPrice: totalPrice,
             parentCallPrice: totalPrice,
@@ -477,8 +480,8 @@ const callStatusTextToSpeech = async (req, res) => {
             to: toNumber,
             from: fromNumber,
             recordingUrl: RecordingUrl || "",
-            callDuration: CallDuration,
-            callDirection: callDirection,
+            duration: CallDuration,
+            direction: callDirection,
             callPrice: call.price,
             parentCallPrice: parentCall?.price || "-0.0",
             currency: call.priceUnit,
@@ -595,6 +598,79 @@ const makeConfrenceCall = async (req, res) => {
     });
   } catch (error) {
     console.log("Error in make confrence call: ", error?.message);
+    res.status(500).json({
+      success: false,
+      message: error?.message,
+    });
+  }
+};
+
+const makeMyOperatorCall = async (req, res) => {
+  const { crmToken, providerNumber, toNumber } = req.body;
+  try {
+    const withoutPlusNumber = sanitizePhoneNumber(providerNumber);
+    let resData = await getProviderDetails(crmToken, providerNumber);
+    if (!resData) {
+      resData = await getProviderDetails(crmToken, withoutPlusNumber);
+    }
+    if (!resData) {
+      return res.status(404).json({
+        success: false,
+        message: "Provider details not found",
+      });
+    }
+    //  make my operator india calling
+    const apiKey = resData.twilio_api_key;
+    const formData = {
+      company_id: resData.msgServiceId,
+      secret_token: resData.jwtToken,
+      type: resData.type,
+      number: toNumber.startsWith("+") ? toNumber : `+${toNumber}`,
+      caller_id: resData.provider_number.startsWith("+")
+        ? resData.provider_number
+        : `+${resData.provider_number}`,
+      group: resData.twiml_app_sid,
+      region: resData.appid,
+      public_ivr_id: resData.twilio_api_secret,
+    };
+    if (resData.type === "1") {
+      formData.user_id = resData.agentNumber;
+    }
+    const response = await axios.post(
+      "https://obd-api.myoperator.co/obd-api-v1",
+      formData,
+      {
+        headers: {
+          "x-api-key": apiKey,
+        },
+      }
+    );
+    res.status(200).json(response.data);
+  } catch (error) {
+    console.log("Error in makeMyOperatorCall: ", error);
+    res.status(500).json({
+      success: false,
+      message: error?.message,
+    });
+  }
+};
+
+const checkMyOperatorCallStatus = async (req, res) => {
+  const { callUniqueId } = req.body;
+  try {
+    const callDetail = await Call.findOne({ callSid: callUniqueId });
+    if (!callDetail) {
+      return res.status(404).json({
+        success: false,
+        message: "Call not found",
+      });
+    }
+    res.status(200).json({
+      success: true,
+      message: "Call found",
+    });
+  } catch (error) {
+    console.log("Error in check myOperator call status: ", error?.message);
     res.status(500).json({
       success: false,
       message: error?.message,
@@ -821,8 +897,8 @@ const callStatusWebhook = async (req, res) => {
             to: call.to,
             from: call.from,
             recordingUrl: RecordingUrl || "",
-            callDuration: CallDuration,
-            callDirection:
+            duration: CallDuration,
+            direction:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
             callPrice: totalPrice,
             parentCallPrice: totalPrice,
@@ -865,6 +941,10 @@ const callStatusWebhook = async (req, res) => {
               : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
+
+          if (call.direction.includes("inbound")) {
+            createZohoIncomingCallLead(devToken, call.from);
+          }
         }
 
         if (call?.price) {
@@ -898,8 +978,8 @@ const callStatusWebhook = async (req, res) => {
             to: call.to,
             from: call.from,
             recordingUrl: RecordingUrl || "",
-            callDuration: CallDuration,
-            callDirection:
+            duration: CallDuration,
+            direction:
               call.direction === "outbound-dial" ? "outgoing" : "incoming",
             callPrice: call.price,
             parentCallPrice: parentCall.price,
@@ -940,6 +1020,10 @@ const callStatusWebhook = async (req, res) => {
               : call.from,
           };
           await createCallRecordInZoho(zohoCallRecordData);
+
+          if (call.direction.includes("inbound")) {
+            createZohoIncomingCallLead(devToken, call.from);
+          }
         } else {
           console.log(
             `Price not available yet. Retrying... (${retryCount + 1})`
@@ -958,55 +1042,177 @@ const callStatusWebhook = async (req, res) => {
 };
 
 // webhook endpoint for myOperator call
+// const myOperatorCallWebhook = async (req, res) => {
+//   const webhookData = req.body;
+
+//   const { to, from, recording, status, direction } = req.query;
+//   const callId = webhookData?._ri;
+//   console.log({ Query: req.query, Body: JSON.stringify(req.body) });
+
+//   try {
+//     // Define call direction based on the `_ty` property
+
+//     const providerNumber = sanitizePhoneNumber(from);
+//     const devToken = await getTokenFromNumber(providerNumber);
+
+//     // Extract duration in seconds by converting '_dr' to a number format
+//     const durationParts = webhookData._dr ? webhookData._dr.split(":") : "";
+//     const callDurationInSeconds = webhookData._dr
+//       ? parseInt(durationParts[0]) * 3600 +
+//         parseInt(durationParts[1]) * 60 +
+//         parseInt(durationParts[2])
+//       : "0";
+
+//     let callStatus = "";
+//     if (status === "1") {
+//       callStatus = "completed";
+//     } else if (status === "2") {
+//       callStatus = "missed";
+//     }
+//     const callDetails = {
+//       callSid: `${webhookData._ri}`, // Unique Call ID
+//       to, // Recipient number
+//       from, // Caller number
+//       recordingUrl: recording || "NA", // Recording URL if available
+//       callDuration: callDurationInSeconds, // Duration in seconds
+//       callDirection: direction, // Incoming or outgoing
+//       status: callStatus,
+//       startTime: new Date(webhookData._st * 1000).toISOString(), // Start time in ISO format
+//       endTime: new Date(webhookData._et * 1000).toISOString(), // End time in ISO format
+//     };
+
+//     console.log("Parsed Call Details:", callDetails);
+
+//     const newCall = new Call(callDetails);
+//     await newCall.save();
+
+//     if (!devToken) {
+//       return res.status(404).end();
+//     }
+
+//     // add call record to zoho
+//     const zohoCallRecordData = {
+//       subject:
+//         callStatus === "missed"
+//           ? "Missed Call"
+//           : direction === "outgoing"
+//           ? `Outgoing Call ${to}`
+//           : `Incoming Call ${from}`,
+//       callType:
+//         callStatus === "missed"
+//           ? "Missed"
+//           : direction === "outgoing"
+//           ? "Outbound"
+//           : "Inbound",
+//       callPurpose: "Follow-up",
+//       callFrom: from,
+//       relatedTo: "", // zoho crm id
+//       callDetails: callStatus,
+//       callStartTime: callDetails.startTime,
+//       callDuration: callDetails.callDuration,
+//       description: `Follow-up call with recording available at: ${
+//         recording || ""
+//       }`,
+//       billable: true,
+//       callResult: "",
+//       crmToken: devToken,
+//       providerNumber,
+//       findZohoNumber: direction === "outgoing" ? to : from,
+//     };
+//     await createCallRecordInZoho(zohoCallRecordData);
+
+//     if (callId) {
+//       let status = callStatus;
+//       if (callStatus === "missed") status = "busy";
+//       await updateMessageStatusByCallId(callId, status);
+//     }
+
+//     // You can then save callDetails to your database or log it as required
+//   } catch (error) {
+//     console.error("Error processing webhook data:", error);
+//     return res
+//       .status(500)
+//       .json({ status: "error", message: "Internal server error" });
+//   }
+
+//   res.status(200).json({ status: "success" });
+// };
+
 const myOperatorCallWebhook = async (req, res) => {
   const webhookData = req.body;
-
-  const { to, from, recording, status, direction } = req.query;
-  const callId = webhookData?._ri;
-  // console.log({ Query: req.query, Body: req.body });
+  const { direction } = req.query;
 
   try {
-    // Define call direction based on the `_ty` property
+    const callId = webhookData?._ri;
+
+    const to = webhookData._cl || "";
+    const from = webhookData._ld?.[0]?._did || "";
+    const statusCode = webhookData._su; // 1 = success/completed, 2 = missed etc.
+    const recording = webhookData._fu || "";
+    const audioFileUrl = webhookData._fn || "";
 
     const providerNumber = sanitizePhoneNumber(from);
-    const devToken = await getTokenFromNumber(providerNumber);
+    let devToken = await getTokenFromNumber(providerNumber);
+    if (!devToken) {
+      await getTokenFromNumber(from);
+    }
 
-    // Extract duration in seconds by converting '_dr' to a number format
-    const durationParts = webhookData._dr ? webhookData._dr.split(":") : "";
-    const callDurationInSeconds = webhookData._dr
-      ? parseInt(durationParts[0]) * 3600 +
-        parseInt(durationParts[1]) * 60 +
-        parseInt(durationParts[2])
-      : "0";
+    // Duration conversion
+    const durationParts = webhookData._dr ? webhookData._dr.split(":") : [];
+    const callDurationInSeconds =
+      durationParts.length === 3
+        ? parseInt(durationParts[0]) * 3600 +
+          parseInt(durationParts[1]) * 60 +
+          parseInt(durationParts[2])
+        : 0;
 
+    // Call status
     let callStatus = "";
-    if (status === "1") {
+    if (statusCode === 1) {
       callStatus = "completed";
-    } else if (status === "2") {
+    } else if (statusCode === 2 || callDurationInSeconds === 0) {
       callStatus = "missed";
     }
+
     const callDetails = {
-      callSid: `webhookData._ci_${Date.now()}`, // Unique Call ID
-      to, // Recipient number
-      from, // Caller number
-      recordingUrl: recording || "NA", // Recording URL if available
-      callDuration: callDurationInSeconds, // Duration in seconds
-      callDirection: direction, // Incoming or outgoing
+      callSid: callId,
+      to,
+      from,
+      recordingUrl: recording,
+      duration: callDurationInSeconds,
+      direction: direction,
       status: callStatus,
-      startTime: new Date(webhookData._st * 1000).toISOString(), // Start time in ISO format
-      endTime: new Date(webhookData._et * 1000).toISOString(), // End time in ISO format
+      startTime: new Date(webhookData._st * 1000).toISOString(),
+      endTime: new Date(webhookData._et * 1000).toISOString(),
     };
+
+    const newCall = new Call(callDetails);
+    await newCall.save();
 
     console.log("Parsed Call Details:", callDetails);
 
-    const newCall = new Call(callDetails);
+    let resProviderData = await getProviderDetails(devToken, providerNumber);
+    if (!resProviderData) {
+      resProviderData = await getProviderDetails(devToken, from);
+    }
+
+    const myOperatorToken = resProviderData?.subdomain;
+
+    // get recording url
+    let recordingUrl = "";
+    if (audioFileUrl) {
+      recordingUrl = await getMyOperatorRecordingUrl(
+        myOperatorToken,
+        audioFileUrl
+      );
+    }
+    newCall.recordingUrl = recordingUrl;
     await newCall.save();
 
     if (!devToken) {
       return res.status(404).end();
     }
 
-    // add call record to zoho
     const zohoCallRecordData = {
       subject:
         callStatus === "missed"
@@ -1022,47 +1228,154 @@ const myOperatorCallWebhook = async (req, res) => {
           : "Inbound",
       callPurpose: "Follow-up",
       callFrom: from,
-      relatedTo: "", // zoho crm id
+      relatedTo: "", // Add Zoho related record ID here if available
       callDetails: callStatus,
       callStartTime: callDetails.startTime,
-      callDuration: callDetails.callDuration,
-      description: `Follow-up call with recording available at: ${
-        recording || ""
-      }`,
+      callDuration: callDetails.duration,
+      description: `Follow-up call with recording available at: ${recordingUrl}`,
       billable: true,
       callResult: "",
       crmToken: devToken,
       providerNumber,
       findZohoNumber: direction === "outgoing" ? to : from,
     };
+
     await createCallRecordInZoho(zohoCallRecordData);
 
     if (callId) {
-      let status = callStatus;
-      if (callStatus === "missed") status = "busy";
-      await updateMessageStatusByCallId(callId, status);
+      let statusForMessage = callStatus;
+      if (callStatus === "missed") statusForMessage = "busy";
+      await updateMessageStatusByCallId(callId, statusForMessage);
     }
 
-    // You can then save callDetails to your database or log it as required
+    res.status(200).json({ status: "success" });
   } catch (error) {
     console.error("Error processing webhook data:", error);
-    return res
-      .status(500)
-      .json({ status: "error", message: "Internal server error" });
+    res.status(500).json({ status: "error", message: "Internal server error" });
   }
-
-  res.status(200).json({ status: "success" });
 };
 
 // const myOperatorCallLogs = async (req, res) => {
-//   try {
-//   } catch (error) {
-//     res.status(500).json({
+//   const token = req.token;
+
+//   const pageLimit = parseInt(req.query.pageLimit, 10) || 10;
+//   const currentPage = parseInt(req.query.currentPage, 10) || 1;
+//   const rawVoiceNumber = req.query.voiceNumber;
+//   const toNumber = req.query.toNumber
+
+//   if (!rawVoiceNumber) {
+//     return res.status(400).json({
 //       success: false,
-//       message: "Internal server error",
+//       message: "voiceNumber query parameter is required",
+//     });
+//   }
+
+//   // Handle both + and non + versions
+//   const withPlus = rawVoiceNumber.startsWith("+")
+//     ? rawVoiceNumber
+//     : `+${rawVoiceNumber}`;
+//   const withoutPlus = rawVoiceNumber.replace(/^\+/, "");
+
+//   try {
+//     const query = {
+//       $or: [
+//         { from: withPlus },
+//         { to: withPlus },
+//         { from: withoutPlus },
+//         { to: withoutPlus },
+//       ],
+//     };
+
+//     const totalResults = await Call.countDocuments(query);
+//     const callLogs = await Call.find(query)
+//       .sort({ createdAt: -1 })
+//       .skip((currentPage - 1) * pageLimit)
+//       .limit(pageLimit);
+
+//     return res.status(200).json({
+//       success: true,
+//       message: "Found",
+//       data: callLogs,
+//       totalResults,
+//       currentPage,
+//       pageLimit,
+//       currentPageResults: callLogs.length,
+//     });
+//   } catch (error) {
+//     console.log("Error in call logs: ", error?.message);
+//     return res.status(500).json({
+//       success: false,
+//       message: "Call logs not found",
 //     });
 //   }
 // };
+
+const myOperatorCallLogs = async (req, res) => {
+  const token = req.token;
+
+  const pageLimit = parseInt(req.query.pageLimit, 10) || 10;
+  const currentPage = parseInt(req.query.currentPage, 10) || 1;
+  const rawVoiceNumber = req.query.voiceNumber;
+  const toNumber = req.query?.toNumber || "";
+
+  if (!rawVoiceNumber) {
+    return res.status(400).json({
+      success: false,
+      message: "voiceNumber query parameter is required",
+    });
+  }
+
+  const withPlus = rawVoiceNumber.startsWith("+")
+    ? rawVoiceNumber
+    : `+${rawVoiceNumber}`;
+  const withoutPlus = rawVoiceNumber.replace(/^\+/, "");
+
+  const query = {
+    $or: [
+      { from: withPlus },
+      { to: withPlus },
+      { from: withoutPlus },
+      { to: withoutPlus },
+    ],
+  };
+
+  if (toNumber) {
+    query.$and = [
+      {
+        $or: [
+          { to: { $regex: toNumber, $options: "i" } },
+          { from: { $regex: toNumber, $options: "i" } },
+        ],
+      },
+    ];
+  }
+
+  console.log({ query: JSON.stringify(query) });
+
+  try {
+    const totalResults = await Call.countDocuments(query);
+    const callLogs = await Call.find(query)
+      .sort({ createdAt: -1 })
+      .skip((currentPage - 1) * pageLimit)
+      .limit(pageLimit);
+
+    return res.status(200).json({
+      success: true,
+      message: "Found",
+      data: callLogs,
+      totalResults,
+      currentPage,
+      pageLimit,
+      currentPageResults: callLogs.length,
+    });
+  } catch (error) {
+    console.log("Error in call logs: ", error?.message);
+    return res.status(500).json({
+      success: false,
+      message: "Call logs not found",
+    });
+  }
+};
 
 /**
  * Checks if the given value is valid as phone number
@@ -1083,4 +1396,7 @@ module.exports = {
   confrenceCallStatusWebhook,
   makeConfrenceCall,
   myOperatorCallWebhook,
+  makeMyOperatorCall,
+  checkMyOperatorCallStatus,
+  myOperatorCallLogs,
 };

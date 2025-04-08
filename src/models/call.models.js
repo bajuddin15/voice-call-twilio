@@ -22,10 +22,10 @@ const callSchema = new Schema(
       type: String,
       default: "",
     },
-    callDuration: {
+    duration: {
       type: String,
     },
-    callDirection: {
+    direction: {
       type: String,
     },
     callPrice: {
